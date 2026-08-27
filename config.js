@@ -4,7 +4,7 @@
   browser-safe Publishable/anon key. Never put a service_role key here.
 */
 window.KWHYZOR_CONFIG = {
-  SUPABASE_URL: "YOUR_SUPABASE_PROJECT_URL",
-  SUPABASE_ANON_KEY: "YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY",
+  SUPABASE_URL: "https://gnxiqzffkarsfrncpwgi.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_LKbEJIm6M9itGCmFm9fvNQ_fqJ84QCa",
   DEMO_MODE: false
 };
