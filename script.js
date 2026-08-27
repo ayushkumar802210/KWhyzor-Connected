@@ -68,6 +68,7 @@ $("#signupForm").onsubmit=async e=>{
 $("#logoutBtn").onclick=logout;
 $$("[data-profile-action]").forEach(b=>b.onclick=()=>{const action=b.dataset.profileAction;if(action==="logout"){openLogoutDialog();return}$("#profileMenu").classList.add("hidden");state.page=action;render(action)});
 $("#cancelLogout").onclick=closeLogoutDialog;$("#confirmLogout").onclick=logout;
+$("#sidebarLogout").onclick=openLogoutDialog;
 $("#forgotBtn").onclick=async()=>{
   const email=$("#signinEmail").value.trim();if(!email){toast("Enter your email first.");return}
   if(!sb){toast("Connect Supabase to enable password reset.");return}
