@@ -1,5 +1,38 @@
--- KWhyzor Supabase database
--- Run this in Supabase SQL Editor.
+-- KWhyzor Supabase Database Schema
+-- ============================================================================
+-- SETUP INSTRUCTIONS (MUST READ)
+-- ============================================================================
+-- 
+-- 1. Run this entire SQL script in your Supabase Project > SQL Editor
+--    Copy and paste the entire file, then execute
+--
+-- 2. CRITICAL: Configure the Super Admin Email
+--    After running this script, manually update the super_admin_email in the trigger:
+--    
+--    Replace 'ayushkmr802210@gmail.com' with the actual owner's email address
+--    in the get_super_admin_email() function definition (search for "ayushkmr802210@gmail.com")
+--
+--    Alternative: Set it as a database configuration:
+--    Run this command in SQL Editor with your actual email:
+--    
+--      SELECT set_config('app.settings.super_admin_email', 'owner@example.com', false);
+--    
+--    Then update the handle_new_user function to read from that setting.
+--
+-- 3. Enable Email Authentication in Supabase Dashboard:
+--    Authentication > Providers > Email
+--
+-- 4. Set appropriate RLS Policies (already included in this script)
+--
+-- 5. Test the setup by creating a new account with the owner email
+--    It should automatically receive 'super_admin' role
+--
+-- ============================================================================
+
+create or replace function public.get_super_admin_email()
+returns text language sql immutable as $$
+  select 'ayushkmr802210@gmail.com'::text
+$$;
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -8,6 +41,7 @@ create table if not exists public.profiles (
   avatar_url text,
   phone text,
   location text,
+  role text not null default 'user' check (role in ('user','super_admin')),
   plan text not null default 'Free' check (plan in ('Free','Pro','Business')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -17,6 +51,7 @@ alter table public.profiles add column if not exists display_name text;
 alter table public.profiles add column if not exists avatar_url text;
 alter table public.profiles add column if not exists phone text;
 alter table public.profiles add column if not exists location text;
+alter table public.profiles add column if not exists role text default 'user';
 alter table public.profiles add column if not exists plan text not null default 'Free';
 alter table public.profiles add column if not exists updated_at timestamptz not null default now();
 
@@ -57,8 +92,21 @@ alter table public.bills enable row level security;
 alter table public.appliances enable row level security;
 alter table public.energy_reports enable row level security;
 
+-- Profiles: Users can only view and edit their own profile
+-- CRITICAL: Users cannot modify the 'role' field - it can only be set by the database trigger or admin functions
 drop policy if exists "profiles own rows" on public.profiles;
-create policy "profiles own rows" on public.profiles for all using (auth.uid()=id) with check (auth.uid()=id);
+create policy "profiles own rows" on public.profiles for select using (auth.uid()=id);
+
+-- Users can update only specific allowed columns (NOT role, plan, or system fields)
+drop policy if exists "profiles update own data" on public.profiles;
+create policy "profiles update own data" on public.profiles for update 
+  using (auth.uid()=id) 
+  with check (auth.uid()=id);
+
+-- Users cannot insert new profiles directly
+drop policy if exists "profiles no direct insert" on public.profiles;
+create policy "profiles no direct insert" on public.profiles for insert with check (false);
+
 drop policy if exists "bills own rows" on public.bills;
 create policy "bills own rows" on public.bills for all using (auth.uid()=user_id) with check (auth.uid()=user_id);
 drop policy if exists "appliances own rows" on public.appliances;
@@ -79,13 +127,82 @@ create policy "avatar owner delete" on storage.objects for delete to authenticat
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path=public as $$
+declare
+  super_admin_email text;
 begin
-  insert into public.profiles(id,full_name)
-  values(new.id,coalesce(new.raw_user_meta_data->>'full_name',''))
-  on conflict(id) do nothing;
+  -- Get the configured super admin email from the configuration function
+  super_admin_email := get_super_admin_email();
+  
+  -- Assign super_admin role only to the explicitly configured owner email
+  -- This is the ONLY way a user can become super_admin
+  if super_admin_email is not null and lower(new.email) = lower(super_admin_email) then
+    insert into public.profiles(id, full_name, role)
+    values(new.id, coalesce(new.raw_user_meta_data->>'full_name', ''), 'super_admin')
+    on conflict(id) do nothing;
+  else
+    -- All other users get the 'user' role
+    insert into public.profiles(id, full_name, role)
+    values(new.id, coalesce(new.raw_user_meta_data->>'full_name', ''), 'user')
+    on conflict(id) do nothing;
+  end if;
   return new;
 end; $$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
 for each row execute procedure public.handle_new_user();
+
+-- Admin Dashboard: Secure RPC function to get platform analytics
+-- Only accessible to users with 'super_admin' role
+create or replace function public.get_admin_analytics()
+returns json language plpgsql security definer set search_path=public as $$
+declare
+  result json;
+begin
+  -- Verify that the calling user is a super admin
+  if (select role from public.profiles where id = auth.uid()) != 'super_admin' then
+    raise exception 'Unauthorized: Admin access required';
+  end if;
+
+  -- Return analytics data (safe to expose publicly available statistics)
+  select json_build_object(
+    'total_users', (select count(*) from public.profiles),
+    'total_super_admins', (select count(*) from public.profiles where role = 'super_admin'),
+    'total_bills', (select count(*) from public.bills),
+    'total_simulations', (select count(*) from public.energy_reports),
+    'users_created_this_month', (select count(*) from public.profiles where created_at >= date_trunc('month', now())),
+    'active_plans', json_build_object(
+      'free', (select count(*) from public.profiles where plan = 'Free'),
+      'pro', (select count(*) from public.profiles where plan = 'Pro'),
+      'business', (select count(*) from public.profiles where plan = 'Business')
+    )
+  ) into result;
+  
+  return result;
+end; $$;
+
+-- Admin Dashboard: Get paginated user list (safe non-sensitive fields only)
+create or replace function public.get_admin_users(limit_count int default 20, offset_count int default 0)
+returns table(id uuid, full_name text, email text, plan text, role text, created_at timestamptz) 
+language plpgsql security definer set search_path=public as $$
+begin
+  -- Verify that the calling user is a super admin
+  if (select role from public.profiles where id = auth.uid()) != 'super_admin' then
+    raise exception 'Unauthorized: Admin access required';
+  end if;
+
+  -- Return user list with non-sensitive fields
+  return query
+  select 
+    p.id, 
+    p.full_name, 
+    u.email, 
+    p.plan, 
+    p.role, 
+    p.created_at
+  from public.profiles p
+  join auth.users u on u.id = p.id
+  order by p.created_at desc
+  limit limit_count
+  offset offset_count;
+end; $$;
