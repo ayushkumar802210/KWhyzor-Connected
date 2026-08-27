@@ -223,3 +223,160 @@ begin
   limit limit_count
   offset offset_count;
 end; $$;
+
+-- Additional relational tables for the Electricity Twin and energy scenarios.
+create table if not exists public.homes (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null default 'My Home',
+  address text,
+  city text,
+  state text,
+  country text not null default 'India',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.rooms (
+  id uuid primary key default gen_random_uuid(),
+  home_id uuid not null references public.homes(id) on delete cascade,
+  name text not null,
+  room_type text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.bill_investigations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  bill_id bigint references public.bills(id) on delete set null,
+  likely_cause text,
+  confidence text check (confidence in ('low', 'medium', 'high')),
+  analysis_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.ev_profiles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  home_id uuid references public.homes(id) on delete cascade,
+  vehicle_name text,
+  battery_capacity_kwh numeric check (battery_capacity_kwh >= 0),
+  daily_distance_km numeric check (daily_distance_km >= 0),
+  efficiency_kwh_per_km numeric check (efficiency_kwh_per_km >= 0),
+  charging_efficiency numeric not null default 0.90 check (charging_efficiency > 0 and charging_efficiency <= 1),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.solar_profiles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  home_id uuid references public.homes(id) on delete cascade,
+  system_size_kw numeric check (system_size_kw >= 0),
+  average_daily_generation_kwh numeric check (average_daily_generation_kwh >= 0),
+  net_metering_enabled boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.energy_simulations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  home_id uuid references public.homes(id) on delete cascade,
+  name text not null,
+  scenario_type text,
+  input_data jsonb not null default '{}'::jsonb,
+  estimated_consumption_kwh numeric check (estimated_consumption_kwh >= 0),
+  estimated_bill_amount numeric check (estimated_bill_amount >= 0),
+  assumptions jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+-- Add updated timestamps to existing tables when this schema is applied to an older project.
+alter table public.homes add column if not exists updated_at timestamptz not null default now();
+alter table public.ev_profiles add column if not exists updated_at timestamptz not null default now();
+alter table public.solar_profiles add column if not exists updated_at timestamptz not null default now();
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists homes_updated_at on public.homes;
+create trigger homes_updated_at before update on public.homes
+for each row execute procedure public.set_updated_at();
+drop trigger if exists ev_profiles_updated_at on public.ev_profiles;
+create trigger ev_profiles_updated_at before update on public.ev_profiles
+for each row execute procedure public.set_updated_at();
+drop trigger if exists solar_profiles_updated_at on public.solar_profiles;
+create trigger solar_profiles_updated_at before update on public.solar_profiles
+for each row execute procedure public.set_updated_at();
+
+-- Ownership policies for all additional user-owned tables.
+alter table public.homes enable row level security;
+alter table public.rooms enable row level security;
+alter table public.bill_investigations enable row level security;
+alter table public.ev_profiles enable row level security;
+alter table public.solar_profiles enable row level security;
+alter table public.energy_simulations enable row level security;
+
+drop policy if exists "homes own rows" on public.homes;
+create policy "homes own rows" on public.homes for all to authenticated
+using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "rooms in own homes" on public.rooms;
+create policy "rooms in own homes" on public.rooms for all to authenticated
+using (exists (select 1 from public.homes where homes.id = rooms.home_id and homes.user_id = auth.uid()))
+with check (exists (select 1 from public.homes where homes.id = rooms.home_id and homes.user_id = auth.uid()));
+
+drop policy if exists "investigations own rows" on public.bill_investigations;
+create policy "investigations own rows" on public.bill_investigations for all to authenticated
+using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "ev profiles own rows" on public.ev_profiles;
+create policy "ev profiles own rows" on public.ev_profiles for all to authenticated
+using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "solar profiles own rows" on public.solar_profiles;
+create policy "solar profiles own rows" on public.solar_profiles for all to authenticated
+using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "simulations own rows" on public.energy_simulations;
+create policy "simulations own rows" on public.energy_simulations for all to authenticated
+using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Private storage for bills and generated reports. Paths must begin with the authenticated user ID.
+insert into storage.buckets (id, name, public) values ('bills', 'bills', false) on conflict (id) do nothing;
+insert into storage.buckets (id, name, public) values ('reports', 'reports', false) on conflict (id) do nothing;
+
+drop policy if exists "bill files owner read" on storage.objects;
+create policy "bill files owner read" on storage.objects for select to authenticated
+using (bucket_id = 'bills' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "bill files owner upload" on storage.objects;
+create policy "bill files owner upload" on storage.objects for insert to authenticated
+with check (bucket_id = 'bills' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "bill files owner delete" on storage.objects;
+create policy "bill files owner delete" on storage.objects for delete to authenticated
+using (bucket_id = 'bills' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "report files owner read" on storage.objects;
+create policy "report files owner read" on storage.objects for select to authenticated
+using (bucket_id = 'reports' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "report files owner upload" on storage.objects;
+create policy "report files owner upload" on storage.objects for insert to authenticated
+with check (bucket_id = 'reports' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "report files owner delete" on storage.objects;
+create policy "report files owner delete" on storage.objects for delete to authenticated
+using (bucket_id = 'reports' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create index if not exists homes_user_id_idx on public.homes(user_id);
+create index if not exists rooms_home_id_idx on public.rooms(home_id);
+create index if not exists investigations_user_id_idx on public.bill_investigations(user_id);
+create index if not exists ev_profiles_user_id_idx on public.ev_profiles(user_id);
+create index if not exists solar_profiles_user_id_idx on public.solar_profiles(user_id);
+create index if not exists simulations_user_id_idx on public.energy_simulations(user_id);
