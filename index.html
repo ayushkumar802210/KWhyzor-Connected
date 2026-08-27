@@ -41,7 +41,7 @@
           <h2>Welcome back</h2>
           <p>Continue your energy investigation.</p>
           <label>Email<input id="signinEmail" type="email" placeholder="you@example.com" required></label>
-          <label>Password<input id="signinPassword" type="password" placeholder="••••••••" required></label>
+          <label>Password<div class="password-input"><input id="signinPassword" type="password" placeholder="••••••••" required><button type="button" class="password-toggle" data-target="signinPassword" aria-label="Show password">Show</button></div></label>
           <div class="form-row"><label class="check"><input type="checkbox"> Remember me</label><button type="button" class="text-btn" id="forgotBtn">Forgot password?</button></div>
           <button class="primary full" type="submit">Sign In →</button>
           <div class="divider"><span>or continue with</span></div>
@@ -55,7 +55,7 @@
           <p>Start your smarter energy journey.</p>
           <label>Full Name<input id="signupName" type="text" placeholder="Your name" required></label>
           <label>Email<input id="signupEmail" type="email" placeholder="you@example.com" required></label>
-          <label>Password<input id="signupPassword" type="password" minlength="6" placeholder="Minimum 6 characters" required></label>
+          <label>Password<div class="password-input"><input id="signupPassword" type="password" minlength="6" placeholder="Minimum 6 characters" required><button type="button" class="password-toggle" data-target="signupPassword" aria-label="Show password">Show</button></div></label>
           <label class="check"><input id="terms" type="checkbox" required> I agree to the terms and privacy policy.</label>
           <button class="primary full" type="submit">Create Account →</button>
           <p class="switch">Already have an account? <button type="button" class="text-btn switchAuth">Sign in</button></p>
@@ -104,6 +104,12 @@
             <button class="avatar avatar-button" id="avatar" aria-label="Open my profile">A</button>
             <div><b id="userName">Ayush Kumar</b><small>Free Plan</small></div>
             <button id="logoutBtn" class="logout">↪</button>
+          </div>
+          <div id="profileMenu" class="profile-menu hidden" role="menu">
+            <button role="menuitem" data-profile-action="profile">◎ My Profile</button>
+            <button role="menuitem" data-profile-action="settings">⚙ Account Settings</button>
+            <button role="menuitem" data-profile-action="profile">✎ Edit Profile</button>
+            <button role="menuitem" data-profile-action="logout">↪ Logout</button>
           </div>
         </div>
       </header>

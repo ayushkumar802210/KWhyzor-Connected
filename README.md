@@ -5,6 +5,7 @@ KWhyzor is an electricity intelligence platform for understanding bill changes, 
 ## Included now
 
 - Demo and Supabase email authentication
+- Google and Facebook OAuth handlers through the official Supabase Auth flow when providers are enabled
 - Bill Scanner upload -> review -> save flow (provider-independent OCR placeholder)
 - Bill Detective with month-over-month change and low/medium/high confidence
 - Electricity Twin with deterministic appliance calculations
@@ -16,7 +17,11 @@ KWhyzor is an electricity intelligence platform for understanding bill changes, 
 
 This is a dependency-free static site. Serve this folder with any static web server, then open `index.html`. GitHub Pages is configured from the `main` branch root.
 
-For real accounts, create a Supabase project, run `supabase-schema.sql` in SQL Editor, enable Email authentication, and put the browser-safe project URL and publishable/anon key in `config.js`. Set `DEMO_MODE` to `false` after configuration. The SQL creates a private `avatars` bucket with policies requiring the first path segment to equal the authenticated user ID. The current demo stores a validated image preview in local storage; production image storage should use the Supabase Storage adapter with a user ID path rather than data URLs.
+For real accounts, create a Supabase project, run `supabase-schema.sql` in SQL Editor, enable Email authentication, and put the browser-safe project URL and publishable/anon key in `config.js`. Set `DEMO_MODE` to `false` after configuration. The SQL creates a private `avatars` bucket with policies requiring the first path segment to equal the authenticated user ID. The current demo stores a validated image preview in local storage; production image storage uses Supabase Storage with a user ID path rather than data URLs.
+
+### OAuth setup
+
+In Supabase Dashboard, open Authentication > Providers and enable Google and/or Facebook with credentials created in the provider console. Add the Supabase callback URL shown in the provider settings, and add the GitHub Pages URL (`https://ayushkumar802210.github.io/kwhyzor-ai-electricity-detective/`) under Authentication > URL Configuration as an allowed redirect URL. The app calls `signInWithOAuth` only when Supabase is configured; otherwise it shows a configuration-required message and never fakes social authentication. OAuth metadata is used to create a profile once, subject to the same profile RLS policy.
 
 ## Architecture
 

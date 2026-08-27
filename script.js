@@ -18,7 +18,8 @@ function showAuth(type="signin"){
 function initials(name){return (name||"User").trim().split(/\s+/).slice(0,2).map(x=>x[0]).join("").toUpperCase()}
 function setUserUI(){const n=state.displayName||state.name||"User";$("#userName").textContent=n;const avatar=$("#avatar");avatar.textContent=state.avatarUrl?"":initials(n);avatar.style.backgroundImage=state.avatarUrl?`url("${state.avatarUrl}")`:"";avatar.classList.toggle("has-image",!!state.avatarUrl)}
 function enterApp(){$("#authScreen").classList.add("hidden");$("#appScreen").classList.remove("hidden");setUserUI();render(state.page)}
-async function logout(){if(sb)await sb.auth.signOut();localStorage.removeItem("kwhyzor_session");$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin");toast("Signed out successfully")}
+async function logout(){if(sb)await sb.auth.signOut();["kwhyzor_session","kwhyzor_name","kwhyzor_display_name","kwhyzor_phone","kwhyzor_location","kwhyzor_avatar","kwhyzor_member_since"].forEach(key=>localStorage.removeItem(key));state.userId=null;state.email="";state.name="User";state.displayName="";state.avatarUrl="";$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");$("#profileMenu").classList.add("hidden");showAuth("signin");toast("You have been logged out successfully.")}
+async function ensureProfile(session){if(!sb||!session?.user)return;const metadata=session.user.user_metadata||{},profile={id:session.user.id,full_name:metadata.full_name||metadata.name||state.name,avatar_url:metadata.avatar_url||metadata.picture||null,updated_at:new Date().toISOString()};await sb.from("profiles").upsert(profile,{onConflict:"id",ignoreDuplicates:false})}
 
 async function loadUserData(){
   if(!sb||!state.userId)return;
@@ -37,20 +38,22 @@ async function loadUserData(){
 async function init(){
   if(!sb){if(cfg.DEMO_MODE&&localStorage.getItem("kwhyzor_session"))enterApp();return}
   const {data:{session}}=await sb.auth.getSession();
-  if(session){state.userId=session.user.id;state.email=session.user.email||"";await loadUserData();enterApp()}
+  if(session){state.userId=session.user.id;state.email=session.user.email||"";await ensureProfile(session);await loadUserData();enterApp()}
   sb.auth.onAuthStateChange(async(_event,session)=>{
-    if(session){state.userId=session.user.id;state.email=session.user.email||"";await loadUserData();enterApp()}
+    if(session){state.userId=session.user.id;state.email=session.user.email||"";await ensureProfile(session);await loadUserData();enterApp()}
   });
 }
 init();
 
 $$(".tab").forEach(b=>b.onclick=()=>showAuth(b.dataset.auth));
 $$(".switchAuth").forEach(b=>b.onclick=()=>showAuth($("#signinForm").classList.contains("hidden")?"signin":"signup"));
+$$(".password-toggle").forEach(b=>b.onclick=()=>{const input=$("#"+b.dataset.target),visible=input.type==="text";input.type=visible?"password":"text";b.textContent=visible?"Show":"Hide";b.setAttribute("aria-label",visible?"Show password":"Hide password")});
 
 $("#signinForm").onsubmit=async e=>{
   e.preventDefault();const email=$("#signinEmail").value.trim(),password=$("#signinPassword").value;
   if(!sb){localStorage.setItem("kwhyzor_session","demo");state.name=localStorage.getItem("kwhyzor_name")||"User";enterApp();toast("Demo sign-in. Add Supabase keys for real accounts.");return}
-  const {error}=await sb.auth.signInWithPassword({email,password});if(error){toast(error.message);return}toast("Welcome back!")
+  const submit=e.submitter;submit.disabled=true;submit.textContent="Signing in...";
+  const {error}=await sb.auth.signInWithPassword({email,password});submit.disabled=false;submit.textContent="Sign In →";if(error){toast(error.message);return}toast("Welcome back!")
 };
 $("#signupForm").onsubmit=async e=>{
   e.preventDefault();const name=$("#signupName").value.trim(),email=$("#signupEmail").value.trim(),password=$("#signupPassword").value;
@@ -61,18 +64,19 @@ $("#signupForm").onsubmit=async e=>{
   if(!data.session)toast("Account created. Check your email to confirm, then sign in.");else{state.userId=data.user.id;state.name=name;await loadUserData();enterApp();toast("Account created!")}
 };
 $("#logoutBtn").onclick=logout;
+$$("[data-profile-action]").forEach(b=>b.onclick=async()=>{const action=b.dataset.profileAction;$("#profileMenu").classList.add("hidden");if(action==="logout"){if(confirm("Log out of KWhyzor?"))await logout();return}state.page=action;render(action)});
 $("#forgotBtn").onclick=async()=>{
   const email=$("#signinEmail").value.trim();if(!email){toast("Enter your email first.");return}
   if(!sb){toast("Connect Supabase to enable password reset.");return}
   const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.href});toast(error?error.message:"Password reset email sent.")
 };
-$$("[data-social]").forEach(b=>b.onclick=()=>toast("Enable social providers in Supabase Auth to use this button."));
+$$(`[data-social]`).forEach(b=>b.onclick=async()=>{if(!sb){toast("Connect Supabase and configure this provider first.");return}b.disabled=true;b.textContent=`Connecting with ${b.dataset.social}...`;const {error}=await sb.auth.signInWithOAuth({provider:b.dataset.social.toLowerCase(),options:{redirectTo:location.href}});if(error){b.disabled=false;b.textContent=`Continue with ${b.dataset.social}`;toast(error.message)}});
 $("#themeBtn").onclick=()=>document.body.classList.toggle("light");
 $("#menuBtn").onclick=()=>$(".sidebar").classList.toggle("open");
 $("#notifyBtn").onclick=()=>toast("3 energy alerts need your attention.");
 $("#upgradeBtn").onclick=()=>toast("Connect a payment provider/server checkout to enable Pro.");
 $$(".nav-item[data-page]").forEach(b=>b.onclick=()=>{state.page=b.dataset.page;$(".sidebar").classList.remove("open");render(state.page)});
-$("#avatar").onclick=()=>{state.page="profile";render("profile")};
+$("#avatar").onclick=()=>$("#profileMenu").classList.toggle("hidden");
 
 function profileImage(input){const file=input.files[0];if(!file)return;if(!["image/jpeg","image/png","image/webp"].includes(file.type)){toast("Use a JPG, PNG, or WebP image.");input.value="";return}if(file.size>2*1024*1024){toast("Profile images must be 2 MB or smaller.");input.value="";return}const reader=new FileReader();reader.onload=()=>{state.avatarUrl=reader.result;setUserUI();$("#profilePhoto").src=reader.result;$("#profilePhoto").classList.remove("hidden");$("#profileInitials").classList.add("hidden");$("#removePhoto").classList.remove("hidden");toast("Photo preview ready. Save your profile.")};reader.readAsDataURL(file)}
 function removeProfileImage(){state.avatarUrl="";setUserUI();$("#profilePhoto").classList.add("hidden");$("#profileInitials").textContent=initials(state.displayName||state.name);$("#profileInitials").classList.remove("hidden");$("#removePhoto").classList.add("hidden")}
