@@ -152,6 +152,23 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
 for each row execute procedure public.handle_new_user();
 
+-- Prevent clients from changing authorization and subscription fields directly.
+create or replace function public.protect_profile_system_fields()
+returns trigger language plpgsql security definer set search_path=public as $$
+begin
+  if new.role is distinct from old.role then
+    raise exception 'The profile role cannot be changed directly';
+  end if;
+  if new.plan is distinct from old.plan then
+    raise exception 'The profile plan cannot be changed directly';
+  end if;
+  return new;
+end; $$;
+
+drop trigger if exists protect_profile_system_fields on public.profiles;
+create trigger protect_profile_system_fields before update on public.profiles
+for each row execute procedure public.protect_profile_system_fields();
+
 -- Admin Dashboard: Secure RPC function to get platform analytics
 -- Only accessible to users with 'super_admin' role
 create or replace function public.get_admin_analytics()
