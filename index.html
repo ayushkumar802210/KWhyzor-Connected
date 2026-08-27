@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KWhyzor — AI Electricity Detective</title>
+  <meta name="description" content="KWhyzor investigates electricity bills, finds likely causes, and simulates smarter energy choices." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast" class="toast"></div>
+
+  <!-- AUTH -->
+  <section id="authScreen" class="auth-screen">
+    <div class="auth-brand">
+      <div class="logo-mark">⚡</div>
+      <div><strong>KW<span>hyzor</span></strong><small>AI Electricity Detective</small></div>
+    </div>
+    <div class="auth-grid">
+      <div class="auth-promo">
+        <span class="eyebrow">✦ AI-POWERED ELECTRICITY INTELLIGENCE</span>
+        <h1>Find out <span>why</span> your bill changed.</h1>
+        <p>KWhyzor turns confusing electricity bills into clear investigations, what-if scenarios, and practical energy insights.</p>
+        <div class="promo-points">
+          <div>🔎 <b>Bill Detective</b><small>Find likely causes behind unusual increases.</small></div>
+          <div>🧠 <b>What-If Simulator</b><small>Test energy choices before changing your routine.</small></div>
+          <div>🏠 <b>Electricity Twin</b><small>Build a simple digital model of your home.</small></div>
+        </div>
+      </div>
+
+      <div class="auth-card">
+        <div class="tabs">
+          <button class="tab active" data-auth="signin">Sign In</button>
+          <button class="tab" data-auth="signup">Sign Up</button>
+        </div>
+
+        <form id="signinForm" class="auth-form">
+          <h2>Welcome back</h2>
+          <p>Continue your energy investigation.</p>
+          <label>Email<input id="signinEmail" type="email" placeholder="you@example.com" required></label>
+          <label>Password<input id="signinPassword" type="password" placeholder="••••••••" required></label>
+          <div class="form-row"><label class="check"><input type="checkbox"> Remember me</label><button type="button" class="text-btn" id="forgotBtn">Forgot password?</button></div>
+          <button class="primary full" type="submit">Sign In →</button>
+          <div class="divider"><span>or continue with</span></div>
+          <button type="button" class="social" data-social="Google">G&nbsp;&nbsp; Continue with Google</button>
+          <button type="button" class="social" data-social="Facebook">f&nbsp;&nbsp; Continue with Facebook</button>
+          <p class="switch">Don't have an account? <button type="button" class="text-btn switchAuth">Sign up</button></p>
+        </form>
+
+        <form id="signupForm" class="auth-form hidden">
+          <h2>Create your account</h2>
+          <p>Start your smarter energy journey.</p>
+          <label>Full Name<input id="signupName" type="text" placeholder="Your name" required></label>
+          <label>Email<input id="signupEmail" type="email" placeholder="you@example.com" required></label>
+          <label>Password<input id="signupPassword" type="password" minlength="6" placeholder="Minimum 6 characters" required></label>
+          <label class="check"><input id="terms" type="checkbox" required> I agree to the terms and privacy policy.</label>
+          <button class="primary full" type="submit">Create Account →</button>
+          <p class="switch">Already have an account? <button type="button" class="text-btn switchAuth">Sign in</button></p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- APP -->
+  <section id="appScreen" class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-mark">⚡</div>
+        <div><strong>KW<span>hyzor</span></strong><small>Energy Intelligence</small></div>
+      </div>
+      <nav>
+        <button class="nav-item active" data-page="dashboard">⌂ <span>Dashboard</span></button>
+        <button class="nav-item" data-page="detective">⌕ <span>Bill Detective</span></button>
+        <button class="nav-item" data-page="simulator">⌁ <span>What-If Simulator</span></button>
+        <button class="nav-item" data-page="twin">⬡ <span>Electricity Twin</span></button>
+        <button class="nav-item" data-page="bills">▤ <span>Bills</span></button>
+        <button class="nav-item" data-page="appliances">♧ <span>Appliances</span></button>
+        <button class="nav-item" data-page="ev">▱ <span>EV Analysis</span></button>
+        <button class="nav-item" data-page="solar">☼ <span>Solar Planner</span></button>
+        <button class="nav-item" data-page="reports">▥ <span>Reports</span></button>
+        <button class="nav-item" data-page="alerts">♧ <span>Alerts</span></button>
+      </nav>
+      <div class="upgrade">
+        <b>♛ Upgrade to Pro</b>
+        <p>Unlock advanced AI insights, unlimited reports and what-if scenarios.</p>
+        <button class="primary full" id="upgradeBtn">Upgrade Now</button>
+      </div>
+      <button class="nav-item settings" data-page="settings">⚙ <span>Settings</span></button>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="menu" id="menuBtn">☰</button>
+        <div><h2 id="pageTitle">Dashboard</h2><small>AI-powered energy intelligence</small></div>
+        <div class="top-actions">
+          <button class="icon-btn" id="themeBtn">☾</button>
+          <button class="icon-btn" id="notifyBtn">♧<i>3</i></button>
+          <div class="user">
+            <div class="avatar" id="avatar">A</div>
+            <div><b id="userName">Ayush Kumar</b><small>Free Plan</small></div>
+            <button id="logoutBtn" class="logout">↪</button>
+          </div>
+        </div>
+      </header>
+
+      <div id="pageContent" class="content"></div>
+    </main>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
