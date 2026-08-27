@@ -21,7 +21,7 @@ function enterApp(){$("#authScreen").classList.add("hidden");$("#appScreen").cla
 function openLogoutDialog(){$("#profileMenu").classList.add("hidden");$("#logoutDialog").classList.remove("hidden");$("#confirmLogout").focus()}
 function closeLogoutDialog(){$("#logoutDialog").classList.add("hidden")}
 async function logout(){const button=$("#confirmLogout");button.disabled=true;button.textContent="Logging out...";if(sb){const {error}=await sb.auth.signOut();if(error){button.disabled=false;button.textContent="Logout";console.error("KWhyzor sign-out failed",error.message);toast("We could not log you out. Please try again.");return}}["kwhyzor_session","kwhyzor_name","kwhyzor_display_name","kwhyzor_phone","kwhyzor_location","kwhyzor_avatar","kwhyzor_member_since","kwhyzor_role"].forEach(key=>localStorage.removeItem(key));state.userId=null;state.email="";state.role="user";state.name="User";state.displayName="";state.phone="";state.location="";state.avatarUrl="";state.plan="Free";state.appliances=[];closeLogoutDialog();$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin");toast("You have been logged out successfully.");button.disabled=false;button.textContent="Logout"}
-async function ensureProfile(session){if(!sb||!session?.user)return;const metadata=session.user.user_metadata||{},profile={id:session.user.id,full_name:metadata.full_name||metadata.name||state.name,avatar_url:metadata.avatar_url||metadata.picture||null,updated_at:new Date().toISOString()};await sb.from("profiles").upsert(profile,{onConflict:"id",ignoreDuplicates:false})}
+async function ensureProfile(session){if(!sb||!session?.user)return}
 
 async function loadUserData(){
   if(!sb||!state.userId)return;
@@ -41,7 +41,7 @@ async function loadUserData(){
   updateProfileMenu();
 }
 async function init(){
-  if(!sb){if(cfg.DEMO_MODE&&localStorage.getItem("kwhyzor_session"))enterApp();return}
+  if(!sb){toast("Supabase is not configured. Add credentials in config.js.");return}
   const {data:{session}}=await sb.auth.getSession();
   if(session){state.userId=session.user.id;state.email=session.user.email||"";await ensureProfile(session);await loadUserData();enterApp()}
   sb.auth.onAuthStateChange(async(_event,session)=>{
@@ -57,16 +57,15 @@ $$(".password-toggle").forEach(b=>b.onclick=()=>{const input=$("#"+b.dataset.tar
 
 $("#signinForm").onsubmit=async e=>{
   e.preventDefault();const email=$("#signinEmail").value.trim(),password=$("#signinPassword").value;
-  if(!sb){localStorage.setItem("kwhyzor_session","demo");state.name=localStorage.getItem("kwhyzor_name")||"User";enterApp();toast("Demo sign-in. Add Supabase keys for real accounts.");return}
+  if(!sb){toast("Supabase is not configured. Add credentials in config.js.");return}
   const submit=e.submitter;submit.disabled=true;submit.textContent="Signing in...";
   const {error}=await sb.auth.signInWithPassword({email,password});submit.disabled=false;submit.textContent="Sign In →";if(error){toast(error.message);return}toast("Welcome back!")
 };
 $("#signupForm").onsubmit=async e=>{
   e.preventDefault();const name=$("#signupName").value.trim(),email=$("#signupEmail").value.trim(),password=$("#signupPassword").value;
-  if(!sb){localStorage.setItem("kwhyzor_name",name);localStorage.setItem("kwhyzor_session","demo");state.name=name;enterApp();toast("Demo account created.");return}
+  if(!sb){toast("Supabase is not configured. Add credentials in config.js.");return}
   const {data,error}=await sb.auth.signUp({email,password,options:{data:{full_name:name}}});
   if(error){toast(error.message);return}
-  if(data.user)await sb.from("profiles").upsert({id:data.user.id,full_name:name});
   if(!data.session)toast("Account created. Check your email to confirm, then sign in.");else{state.userId=data.user.id;state.name=name;await loadUserData();enterApp();toast("Account created!")}
 };
 $("#logoutBtn").onclick=logout;
