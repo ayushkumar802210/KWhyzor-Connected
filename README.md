@@ -8,6 +8,7 @@ KWhyzor is an electricity intelligence platform for understanding bill changes, 
 - Bill Scanner upload -> review -> save flow (provider-independent OCR placeholder)
 - Bill Detective with month-over-month change and low/medium/high confidence
 - Electricity Twin with deterministic appliance calculations
+- Profile management with validated avatar preview/removal and user-scoped Supabase Storage policies
 - What-if, EV and Solar estimation views
 - Responsive dashboard with light mode
 
@@ -15,7 +16,7 @@ KWhyzor is an electricity intelligence platform for understanding bill changes, 
 
 This is a dependency-free static site. Serve this folder with any static web server, then open `index.html`. GitHub Pages is configured from the `main` branch root.
 
-For real accounts, create a Supabase project, run `supabase-schema.sql` in SQL Editor, enable Email authentication, and put the browser-safe project URL and publishable/anon key in `config.js`. Set `DEMO_MODE` to `false` after configuration.
+For real accounts, create a Supabase project, run `supabase-schema.sql` in SQL Editor, enable Email authentication, and put the browser-safe project URL and publishable/anon key in `config.js`. Set `DEMO_MODE` to `false` after configuration. The SQL creates a private `avatars` bucket with policies requiring the first path segment to equal the authenticated user ID. The current demo stores a validated image preview in local storage; production image storage should use the Supabase Storage adapter with a user ID path rather than data URLs.
 
 ## Architecture
 
