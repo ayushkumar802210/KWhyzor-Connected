@@ -25,6 +25,8 @@ async function ensureProfile(session){if(!sb||!session?.user)return;const metada
 
 async function loadUserData(){
   if(!sb||!state.userId)return;
+  // Never retain a cached admin role while the authoritative profile is unavailable.
+  state.role="user";
   const [{data:p},{data:b},{data:a}]=await Promise.all([
     sb.from("profiles").select("*").eq("id",state.userId).maybeSingle(),
     sb.from("bills").select("*").eq("user_id",state.userId).order("billing_date",{ascending:false}).limit(24),
@@ -44,6 +46,7 @@ async function init(){
   if(session){state.userId=session.user.id;state.email=session.user.email||"";await ensureProfile(session);await loadUserData();enterApp()}
   sb.auth.onAuthStateChange(async(_event,session)=>{
     if(session){state.userId=session.user.id;state.email=session.user.email||"";await ensureProfile(session);await loadUserData();enterApp()}
+    else{state.userId=null;state.email="";state.role="user";localStorage.removeItem("kwhyzor_role");$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin")}
   });
 }
 init();
@@ -160,7 +163,7 @@ function settings(){return `<div><h1 class="page-title">Settings</h1><p class="p
 
 async function admin(){
   if(state.role!=="super_admin"){toast("Access denied: Admin authorization required.");state.page="dashboard";render("dashboard");return `<div></div>`}
-  if(!sb){return `<div><h1 class="page-title">👑 Admin Dashboard</h1><p class="page-copy">Demo Mode - Admin features disabled</p></section></div>`}
+  if(!sb){toast("Connect Supabase to enable admin access.");state.page="dashboard";render("dashboard");return `<div></div>`}
   try{const {data:analytics,error:err1}=await sb.rpc("get_admin_analytics");const {data:users,error:err2}=await sb.rpc("get_admin_users",{limit_count:10,offset_count:0});if(err1||err2)throw err1||err2;const stats=analytics||{total_users:0,total_super_admins:0,total_bills:0,total_simulations:0,users_created_this_month:0,active_plans:{free:0,pro:0,business:0}};return `<div><h1 class="page-title">👑 KWhyzor Admin Dashboard</h1><p class="page-copy">System overview and user management. All data is non-sensitive and audit-safe.</p><section class="panel"><div class="cards"><div class="metric"><div class="metric-head"><span>Total Registered Users</span><i class="metric-icon">👤</i></div><strong>${stats.total_users}</strong><small>${stats.users_created_this_month} joined this month</small></div><div class="metric"><div class="metric-head"><span>Super Admins</span><i class="metric-icon">👑</i></div><strong>${stats.total_super_admins||1}</strong><small>System configuration</small></div><div class="metric"><div class="metric-head"><span>Total Bills Analyzed</span><i class="metric-icon">▤</i></div><strong>${stats.total_bills}</strong><small>Platform usage</small></div><div class="metric"><div class="metric-head"><span>Energy Simulations</span><i class="metric-icon">⌁</i></div><strong>${stats.total_simulations}</strong><small>User engagement</small></div></div></section><section class="panel" style="margin-top:15px"><h3>Active Subscriptions</h3><div class="list"><div class="list-row"><div><b>Free Plan</b><small>Standard access</small></div><span class="value">${stats.active_plans.free}</span></div><div class="list-row"><div><b>Pro Plan</b><small>Enhanced features</small></div><span class="value">${stats.active_plans.pro}</span></div><div class="list-row"><div><b>Business Plan</b><small>Custom support</small></div><span class="value">${stats.active_plans.business}</span></div></div></section><section class="panel" style="margin-top:15px"><h3>Recent Users</h3><div class="list">${(users||[]).map(u=>`<div class="list-row"><div><b>${u.full_name||"Unnamed User"}</b><small>${u.email}</small></div><div><span style="font-size:10px;color:var(--muted)">${new Date(u.created_at).toLocaleDateString()}</span></div></div>`).join("")}</div></section><section class="panel" style="margin-top:15px"><div class="panel-head"><div><h3>Security Status</h3><p class="panel-sub">All admin functions are protected by server-side role verification.</p></div></div><div class="list"><div class="list-row"><div><b>Authentication</b><small>Supabase Auth with RLS policies</small></div><span class="value good">✓ Secure</span></div><div class="list-row"><div><b>Role Enforcement</b><small>Server-side authorization checks</small></div><span class="value good">✓ Verified</span></div><div class="list-row"><div><b>Data Exposure</b><small>No passwords or secrets exposed</small></div><span class="value good">✓ Safe</span></div></div></section></div>`}catch(e){toast("Error loading admin analytics: "+e.message);return `<div><h1 class="page-title">👑 Admin Dashboard</h1><p class="page-copy">Error loading data</p></div>`}}
 }
 
