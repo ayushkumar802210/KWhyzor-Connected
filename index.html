@@ -20,6 +20,37 @@
     </section>
   </div>
 
+  <button id="askKwhyzorFab" class="ai-fab" aria-label="Open Ask KWhyzor">⚡ Ask KWhyzor</button>
+  <div id="aiAssistantModal" class="ai-modal hidden" aria-hidden="true">
+    <div class="ai-panel" role="dialog" aria-modal="true" aria-labelledby="aiTitle">
+      <div class="ai-header">
+        <div class="ai-branding">
+          <div class="ai-logo">⚡</div>
+          <div>
+            <h3 id="aiTitle">Ask KWhyzor</h3>
+            <p>Your AI Electrical &amp; Energy Assistant</p>
+          </div>
+        </div>
+        <button id="closeAiAssistant" class="close-ai" aria-label="Close assistant">✕</button>
+      </div>
+
+      <div class="ai-suggestions">
+        <button class="ai-suggestion" data-question="Why did my electricity bill increase?">Why did my electricity bill increase?</button>
+        <button class="ai-suggestion" data-question="How much electricity does my AC use?">How much electricity does my AC use?</button>
+        <button class="ai-suggestion" data-question="How much will my EV add to my electricity bill?">How much will my EV add to my electricity bill?</button>
+        <button class="ai-suggestion" data-question="How much solar might my home need?">How much solar might my home need?</button>
+      </div>
+
+      <div id="aiMessages" class="ai-messages"></div>
+      <div id="aiStatus" class="ai-status hidden"></div>
+
+      <div class="ai-composer">
+        <textarea id="aiPrompt" rows="1" placeholder="Ask KWhyzor about your bill, appliances, EV, solar or electrical concepts..."></textarea>
+        <button id="sendAiQuestion" class="primary">Send</button>
+      </div>
+    </div>
+  </div>
+
   <!-- AUTH -->
   <section id="authScreen" class="auth-screen">
     <div class="auth-brand">
@@ -51,6 +82,7 @@
           <label>Password<div class="password-input"><input id="signinPassword" type="password" placeholder="••••••••" required><button type="button" class="password-toggle" data-target="signinPassword" aria-label="Show password">Show</button></div></label>
           <div class="form-row"><label class="check"><input type="checkbox"> Remember me</label><button type="button" class="text-btn" id="forgotBtn">Forgot password?</button></div>
           <button class="primary full" type="submit">Sign In →</button>
+          <button type="button" class="choice full demo-access" data-demo-login="true">Use Demo Access</button>
           <div class="divider"><span>or continue with</span></div>
           <button type="button" class="social" data-social="Google">G&nbsp;&nbsp; Continue with Google</button>
           <button type="button" class="social" data-social="Facebook">f&nbsp;&nbsp; Continue with Facebook</button>
@@ -65,6 +97,7 @@
           <label>Password<div class="password-input"><input id="signupPassword" type="password" minlength="6" placeholder="Minimum 6 characters" required><button type="button" class="password-toggle" data-target="signupPassword" aria-label="Show password">Show</button></div></label>
           <label class="check"><input id="terms" type="checkbox" required> I agree to the terms and privacy policy.</label>
           <button class="primary full" type="submit">Create Account →</button>
+          <button type="button" class="choice full demo-access" data-demo-login="true">Create Demo Account</button>
           <p class="switch">Already have an account? <button type="button" class="text-btn switchAuth">Sign in</button></p>
         </form>
       </div>
@@ -88,6 +121,7 @@
         <button class="nav-item" data-page="appliances">♧ <span>Appliances</span></button>
         <button class="nav-item" data-page="ev">▱ <span>EV Analysis</span></button>
         <button class="nav-item" data-page="solar">☼ <span>Solar Planner</span></button>
+        <button class="nav-item" data-page="payments">💳 <span>Pay &amp; Recharge</span></button>
         <button class="nav-item" data-page="reports">▥ <span>Reports</span></button>
         <button class="nav-item" data-page="alerts">♧ <span>Alerts</span></button>
         <button class="nav-item" data-page="profile">◎ <span>My Profile</span></button>
@@ -98,6 +132,7 @@
         <button class="primary full" id="upgradeBtn">Upgrade Now</button>
       </div>
       <button class="nav-item settings" data-page="settings">⚙ <span>Settings</span></button>
+      <button class="nav-item ai-nav-item" id="openAiAssistantFromNav">⚡ <span>Ask KWhyzor</span></button>
       <button class="nav-item sidebar-logout" id="sidebarLogout">↪ <span>Logout</span></button>
     </aside>
 
@@ -130,6 +165,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
 <script src="energy-engine.js"></script>
+<script src="ai-assistant.js"></script>
 <script src="script.js"></script>
 </body>
 </html>

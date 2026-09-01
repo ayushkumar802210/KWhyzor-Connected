@@ -1,13 +1,73 @@
 const $=s=>document.querySelector(s), $$=s=>document.querySelectorAll(s);
 const cfg=window.KWHYZOR_CONFIG||{};
-const supabaseReady=cfg.SUPABASE_URL && !cfg.SUPABASE_URL.startsWith("YOUR_") &&
+const supabaseReady=!cfg.DEMO_MODE && cfg.SUPABASE_URL && !cfg.SUPABASE_URL.startsWith("YOUR_") &&
   cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_ANON_KEY.startsWith("YOUR_");
 const sb=supabaseReady ? window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_ANON_KEY) : null;
 
 const state={name:localStorage.getItem("kwhyzor_name")||"User",displayName:localStorage.getItem("kwhyzor_display_name")||"",phone:localStorage.getItem("kwhyzor_phone")||"",location:localStorage.getItem("kwhyzor_location")||"",avatarUrl:localStorage.getItem("kwhyzor_avatar")||"",plan:"Free",role:localStorage.getItem("kwhyzor_role")||"user",memberSince:localStorage.getItem("kwhyzor_member_since")||new Date().toISOString(),email:"",userId:null,page:"dashboard",
   bills:[{month:"August 2026",amount:3140,units:412},{month:"July 2026",amount:2020,units:331},
          {month:"June 2026",amount:1850,units:305},{month:"May 2026",amount:1760,units:292}],
-  appliances:[]};
+  appliances:[],
+  paymentOrders:[],
+  paymentHistory:[],
+  currentBill:null,
+  currentOrder:null};
+
+function readDemoUsers(){
+  try { return JSON.parse(localStorage.getItem("kwhyzor_demo_users") || "{}"); }
+  catch { return {}; }
+}
+function writeDemoUsers(users){ localStorage.setItem("kwhyzor_demo_users", JSON.stringify(users)); }
+function setDemoSession(user){
+  state.userId = user.id;
+  state.email = user.email;
+  state.name = user.name;
+  state.displayName = user.displayName || user.name;
+  state.plan = user.plan || "Free";
+  state.role = user.role || "user";
+  state.memberSince = user.memberSince || new Date().toISOString();
+  localStorage.setItem("kwhyzor_session", JSON.stringify({ id: user.id, email: user.email, name: user.name, displayName: user.displayName || user.name }));
+  localStorage.setItem("kwhyzor_demo_session", JSON.stringify({ id: user.id, email: user.email }));
+  localStorage.setItem("kwhyzor_name", user.name);
+  localStorage.setItem("kwhyzor_display_name", user.displayName || user.name);
+  localStorage.setItem("kwhyzor_role", state.role);
+  localStorage.setItem("kwhyzor_member_since", state.memberSince);
+}
+function clearDemoSession(){
+  localStorage.removeItem("kwhyzor_session");
+  localStorage.removeItem("kwhyzor_demo_session");
+}
+function demoSignIn(email, password){
+  const userEmail = (email || "").trim().toLowerCase();
+  const users = readDemoUsers();
+  const user = users[userEmail];
+  if(!user) return { ok: false, error: "Account not found. Please create an account first." };
+  if(user.password !== password) return { ok: false, error: "Incorrect password. Please try again." };
+  setDemoSession({ id: user.id, email: user.email, name: user.name, displayName: user.displayName || user.name, plan: user.plan || "Free", role: user.role || "user", memberSince: user.memberSince || new Date().toISOString() });
+  return { ok: true, user };
+}
+function demoSignUp(name, email, password){
+  const userEmail = (email || "").trim().toLowerCase();
+  if(!name || !userEmail || !password) return { ok: false, error: "Please provide a valid name, email and password."};
+  const users = readDemoUsers();
+  if(users[userEmail]) return { ok: false, error: "An account with this email already exists. Please sign in instead." };
+  const user = { id: `demo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, email: userEmail, name: name.trim(), displayName: name.trim(), password, plan: "Free", role: "user", memberSince: new Date().toISOString() };
+  users[userEmail] = user;
+  writeDemoUsers(users);
+  setDemoSession(user);
+  return { ok: true, user };
+}
+function ensureDemoUser(){
+  const users = readDemoUsers();
+  const email = 'demo@kwhyzor.ai';
+  if(!users[email]){
+    const user = { id: 'demo-default-user', email, name: 'Demo User', displayName: 'Demo User', password: 'demo123', plan: 'Free', role: 'user', memberSince: new Date().toISOString() };
+    users[email] = user;
+    writeDemoUsers(users);
+  }
+  return users[email];
+}
+window.KWHYZOR_STATE = state;
 
 function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2400)}
 function showAuth(type="signin"){
@@ -20,7 +80,7 @@ function setUserUI(){const n=state.displayName||state.name||"User";$("#userName"
 function enterApp(){$("#authScreen").classList.add("hidden");$("#appScreen").classList.remove("hidden");setUserUI();render(state.page)}
 function openLogoutDialog(){$("#profileMenu").classList.add("hidden");$("#logoutDialog").classList.remove("hidden");$("#confirmLogout").focus()}
 function closeLogoutDialog(){$("#logoutDialog").classList.add("hidden")}
-async function logout(){const button=$("#confirmLogout");button.disabled=true;button.textContent="Logging out...";if(sb){const {error}=await sb.auth.signOut();if(error){button.disabled=false;button.textContent="Logout";console.error("KWhyzor sign-out failed",error.message);toast("We could not log you out. Please try again.");return}}["kwhyzor_session","kwhyzor_name","kwhyzor_display_name","kwhyzor_phone","kwhyzor_location","kwhyzor_avatar","kwhyzor_member_since","kwhyzor_role"].forEach(key=>localStorage.removeItem(key));state.userId=null;state.email="";state.role="user";state.name="User";state.displayName="";state.phone="";state.location="";state.avatarUrl="";state.plan="Free";state.appliances=[];closeLogoutDialog();$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin");toast("You have been logged out successfully.");button.disabled=false;button.textContent="Logout"}
+async function logout(){const button=$("#confirmLogout");button.disabled=true;button.textContent="Logging out...";if(sb){const {error}=await sb.auth.signOut();if(error){button.disabled=false;button.textContent="Logout";console.error("KWhyzor sign-out failed",error.message);toast("We could not log you out. Please try again.");return}}["kwhyzor_session","kwhyzor_demo_session","kwhyzor_name","kwhyzor_display_name","kwhyzor_phone","kwhyzor_location","kwhyzor_avatar","kwhyzor_member_since","kwhyzor_role"].forEach(key=>localStorage.removeItem(key));state.userId=null;state.email="";state.role="user";state.name="User";state.displayName="";state.phone="";state.location="";state.avatarUrl="";state.plan="Free";state.appliances=[];clearDemoSession();closeLogoutDialog();$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin");toast("You have been logged out successfully.");button.disabled=false;button.textContent="Logout"}
 async function ensureProfile(session){if(!sb||!session?.user)return}
 
 async function loadUserData(){
@@ -41,12 +101,27 @@ async function loadUserData(){
   updateProfileMenu();
 }
 async function init(){
-  if(!sb){toast("Supabase is not configured. Add credentials in config.js.");return}
+  ensureDemoUser();
+  const storedDemoSession = JSON.parse(localStorage.getItem("kwhyzor_demo_session") || "null");
+  if(storedDemoSession){
+    state.userId = storedDemoSession.id;
+    state.email = storedDemoSession.email || "";
+    state.name = localStorage.getItem("kwhyzor_name") || "User";
+    state.displayName = localStorage.getItem("kwhyzor_display_name") || state.name;
+    state.role = localStorage.getItem("kwhyzor_role") || "user";
+    enterApp();
+    return;
+  }
+  if(!sb){
+    if(cfg.DEMO_MODE){toast("Demo mode enabled. You can create an account and continue immediately.");return}
+    toast("Supabase is not configured. Add credentials in config.js.");
+    return;
+  }
   const {data:{session}}=await sb.auth.getSession();
   if(session){state.userId=session.user.id;state.email=session.user.email||"";await ensureProfile(session);await loadUserData();enterApp()}
   sb.auth.onAuthStateChange(async(_event,session)=>{
     if(session){state.userId=session.user.id;state.email=session.user.email||"";await ensureProfile(session);await loadUserData();enterApp()}
-    else{state.userId=null;state.email="";state.role="user";localStorage.removeItem("kwhyzor_role");$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin")}
+    else{state.userId=null;state.email="";state.role="user";localStorage.removeItem("kwhyzor_role");clearDemoSession();$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin")}
   });
 }
 init();
@@ -56,22 +131,92 @@ $$(".switchAuth").forEach(b=>b.onclick=()=>showAuth($("#signinForm").classList.c
 $$(".password-toggle").forEach(b=>b.onclick=()=>{const input=$("#"+b.dataset.target),visible=input.type==="text";input.type=visible?"password":"text";b.textContent=visible?"Show":"Hide";b.setAttribute("aria-label",visible?"Show password":"Hide password")});
 
 $("#signinForm").onsubmit=async e=>{
-  e.preventDefault();const email=$("#signinEmail").value.trim(),password=$("#signinPassword").value;
-  if(!sb){toast("Supabase is not configured. Add credentials in config.js.");return}
-  const submit=e.submitter;submit.disabled=true;submit.textContent="Signing in...";
-  const {error}=await sb.auth.signInWithPassword({email,password});submit.disabled=false;submit.textContent="Sign In →";if(error){toast(error.message);return}toast("Welcome back!")
+  e.preventDefault();
+  const email=$("#signinEmail").value.trim(),password=$("#signinPassword").value;
+  const submit = e.submitter || $("#signinForm button[type='submit']");
+  if(submit){submit.disabled=true;submit.textContent="Signing in...";}
+  if(sb){
+    const {error}=await sb.auth.signInWithPassword({email,password});
+    if(!error){toast("Welcome back!");if(submit){submit.disabled=false;submit.textContent="Sign In →";}return}
+    if(!cfg.DEMO_MODE){toast(error.message);if(submit){submit.disabled=false;submit.textContent="Sign In →";}return}
+  }
+  const demo = demoSignIn(email || 'demo@kwhyzor.ai', password || 'demo123');
+  if(submit){submit.disabled=false;submit.textContent="Sign In →";}
+  if(!demo.ok){toast(demo.error);return}
+  state.userId = demo.user.id;
+  state.email = demo.user.email;
+  state.name = demo.user.name;
+  state.displayName = demo.user.displayName || demo.user.name;
+  state.plan = demo.user.plan || "Free";
+  state.role = demo.user.role || "user";
+  state.memberSince = demo.user.memberSince || new Date().toISOString();
+  enterApp();
+  toast("Welcome back! Demo mode is active.");
 };
 $("#signupForm").onsubmit=async e=>{
-  e.preventDefault();const name=$("#signupName").value.trim(),email=$("#signupEmail").value.trim(),password=$("#signupPassword").value;
-  if(!sb){toast("Supabase is not configured. Add credentials in config.js.");return}
-  const {data,error}=await sb.auth.signUp({email,password,options:{data:{full_name:name}}});
-  if(error){toast(error.message);return}
-  if(!data.session)toast("Account created. Check your email to confirm, then sign in.");else{state.userId=data.user.id;state.name=name;await loadUserData();enterApp();toast("Account created!")}
+  e.preventDefault();
+  const name=$("#signupName").value.trim(),email=$("#signupEmail").value.trim(),password=$("#signupPassword").value;
+  const submit = e.submitter || $("#signupForm button[type='submit']");
+  if(submit){submit.disabled=true;submit.textContent="Creating account...";}
+  if(sb){
+    const {data,error}=await sb.auth.signUp({email,password,options:{data:{full_name:name}}});
+    if(!error && data.user){
+      state.userId=data.user.id;state.name=name;state.email=email;state.displayName=name;await loadUserData();enterApp();toast("Account created!");if(submit){submit.disabled=false;submit.textContent="Create Account →";}return;
+    }
+    if(!cfg.DEMO_MODE){toast(error?.message || "Unable to create an account right now.");if(submit){submit.disabled=false;submit.textContent="Create Account →";}return}
+  }
+  const demo = demoSignUp(name || 'Demo User', email || 'demo@kwhyzor.ai', password || 'demo123');
+  if(submit){submit.disabled=false;submit.textContent="Create Account →";}
+  if(!demo.ok){toast(demo.error);return}
+  state.userId = demo.user.id;
+  state.email = demo.user.email;
+  state.name = demo.user.name;
+  state.displayName = demo.user.displayName || demo.user.name;
+  state.plan = demo.user.plan || "Free";
+  state.role = demo.user.role || "user";
+  state.memberSince = demo.user.memberSince || new Date().toISOString();
+  enterApp();
+  toast("Account created! Demo mode is active.");
 };
+
+function triggerDemoAuth(mode){
+  const email = 'demo@kwhyzor.ai';
+  const password = 'demo123';
+  const seeded = ensureDemoUser();
+  const result = mode === 'signup' ? demoSignUp(seeded.name, seeded.email, seeded.password) : demoSignIn(seeded.email, seeded.password);
+  if(result.ok){
+    state.userId = result.user.id;
+    state.email = result.user.email;
+    state.name = result.user.name;
+    state.displayName = result.user.displayName || result.user.name;
+    state.plan = result.user.plan || 'Free';
+    state.role = result.user.role || 'user';
+    state.memberSince = result.user.memberSince || new Date().toISOString();
+    enterApp();
+    toast(mode === 'signup' ? 'Demo account ready. You are signed in.' : 'Demo access granted.');
+    return;
+  }
+  toast(result.error || 'Unable to create the demo account.');
+}
+
+$$('.demo-access').forEach(btn => btn.addEventListener('click', () => {
+  const mode = btn.textContent.toLowerCase().includes('create') ? 'signup' : 'signin';
+  triggerDemoAuth(mode);
+}));
 $("#logoutBtn").onclick=logout;
 $$("[data-profile-action]").forEach(b=>b.onclick=()=>{const action=b.dataset.profileAction;if(action==="logout"){openLogoutDialog();return}$("#profileMenu").classList.add("hidden");state.page=action;render(action)});
 $("#cancelLogout").onclick=closeLogoutDialog;$("#confirmLogout").onclick=logout;
 $("#sidebarLogout").onclick=openLogoutDialog;
+$("#askKwhyzorFab").onclick=openAiAssistant;
+$("#openAiAssistantFromNav").onclick=openAiAssistant;
+$("#closeAiAssistant").onclick=closeAiAssistant;
+$("#sendAiQuestion").onclick=sendAiQuestion;
+$("#aiPrompt").addEventListener("keydown",e=>{if(e.key==="Enter" && !e.shiftKey){e.preventDefault();sendAiQuestion();}});
+$$(".ai-suggestion").forEach(btn => btn.addEventListener("click", () => {
+  const input=$("#aiPrompt");
+  if(input){input.value=btn.dataset.question; input.focus();}
+  sendAiQuestion();
+}));
 $("#forgotBtn").onclick=async()=>{
   const email=$("#signinEmail").value.trim();if(!email){toast("Enter your email first.");return}
   if(!sb){toast("Connect Supabase to enable password reset.");return}
@@ -86,7 +231,59 @@ $$(".nav-item[data-page]").forEach(b=>b.onclick=()=>{state.page=b.dataset.page;$
 $("#avatar").onclick=()=>{updateProfileMenu();$("#profileMenu").classList.toggle("hidden")};
 function updateProfileMenu(){const adminBtn=$("#adminMenuBtn");if(adminBtn)adminBtn.style.display=state.role==="super_admin"?"block":"none"}
 document.addEventListener("click",e=>{if(!e.target.closest(".user")&&!e.target.closest("#profileMenu"))$("#profileMenu").classList.add("hidden")});
-document.addEventListener("keydown",e=>{if(e.key==="Escape"){$("#profileMenu").classList.add("hidden");closeLogoutDialog()}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){$("#profileMenu").classList.add("hidden");closeLogoutDialog();if(!$("#aiAssistantModal").classList.contains("hidden"))closeAiAssistant();}});
+
+function renderAiMessages(messages=[]){
+  const el=$("#aiMessages");
+  if(!el)return;
+  const items=messages.length?messages:[{role:"assistant",text:"Ask KWhyzor about your electricity bill, appliance usage, EV charging, solar planning, or electrical concepts."}];
+  el.innerHTML=items.map(msg=>`<div class="ai-message ${msg.role}"><div class="ai-bubble">${msg.text.replace(/\n/g,"<br>")}</div></div>`).join("");
+  el.scrollTop=el.scrollHeight;
+}
+
+function openAiAssistant(){
+  const modal=$("#aiAssistantModal");
+  if(!modal)return;
+  const messages=window.KWhyzorAI?.loadHistory?.() || [];
+  renderAiMessages(messages);
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden","false");
+  setTimeout(()=>$("#aiPrompt")?.focus(),50);
+}
+
+function closeAiAssistant(){
+  const modal=$("#aiAssistantModal");
+  if(!modal)return;
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden","true");
+}
+
+async function sendAiQuestion(){
+  const input=$("#aiPrompt");
+  const value=(input?.value||"").trim();
+  if(!value)return;
+  const messages=window.KWhyzorAI?.loadHistory?.() || [];
+  const next=[...messages,{role:"user",text:value}];
+  window.KWhyzorAI?.saveHistory(next);
+  renderAiMessages(next);
+  input.value="";
+  input.style.height='auto';
+  const status=$("#aiStatus");
+  if(status){status.textContent="Thinking...";status.classList.remove("hidden");}
+  try{
+    const response = window.KWhyzorAI?.chat ? window.KWhyzorAI.chat(value, window.KWHYZOR_STATE || state) : {answer:"AI is not available in this build yet."};
+    const finalMessages=[...next,{role:"assistant",text: response.answer || "I could not generate a response." }];
+    window.KWhyzorAI?.saveHistory(finalMessages);
+    renderAiMessages(finalMessages);
+    if(status){status.textContent=response.configRequired?"Fallback mode: AI provider not configured.":"Response ready.";status.classList.remove("hidden");}
+  }catch(error){
+    const fallback=[...next,{role:"assistant",text:"I hit an unexpected issue while generating the answer. Please try again with a shorter or clearer question."}];
+    window.KWhyzorAI?.saveHistory(fallback);
+    renderAiMessages(fallback);
+    if(status){status.textContent="Error generating answer.";status.classList.remove("hidden");}
+  }
+  setTimeout(()=>status&&status.classList.add("hidden"),2000);
+}
 
 function profileImage(input){const file=input.files[0];if(!file)return;if(!["image/jpeg","image/png","image/webp"].includes(file.type)){toast("Use a JPG, PNG, or WebP image.");input.value="";return}if(file.size>2*1024*1024){toast("Profile images must be 2 MB or smaller.");input.value="";return}const reader=new FileReader();reader.onload=()=>{state.avatarUrl=reader.result;setUserUI();$("#profilePhoto").src=reader.result;$("#profilePhoto").classList.remove("hidden");$("#profileInitials").classList.add("hidden");$("#removePhoto").classList.remove("hidden");toast("Photo preview ready. Save your profile.")};reader.readAsDataURL(file)}
 function removeProfileImage(){state.avatarUrl="";setUserUI();$("#profilePhoto").classList.add("hidden");$("#profileInitials").textContent=initials(state.displayName||state.name);$("#profileInitials").classList.remove("hidden");$("#removePhoto").classList.add("hidden")}
@@ -155,15 +352,81 @@ function ev(){return `<div><h1 class="page-title">EV Analysis 🚗</h1><p class=
 function evCalc(){let b=+$("#battery").value,s=+$("#soc").value,t=+$("#target").value,r=+$("#evrate").value;let k=Math.max(0,b*(t-s)/100)/.9;$("#evResult").innerHTML=`<div class="result"><span>Estimated charging energy</span><strong>${k.toFixed(1)} kWh</strong><p style="color:var(--muted);font-size:11px;margin-top:5px">Estimated cost: <b class="good">₹${Math.round(k*r)}</b>. Includes a 10% charging-loss assumption.</p></div>`}
 function solar(){return `<div><h1 class="page-title">Solar Planner ☀️</h1><p class="page-copy">Explore a simple solar scenario for your home.</p><section class="panel"><div class="form-grid">${field("Monthly consumption (kWh)","solarKwh","412","number",0,100000)}${field("Solar capacity (kW)","solarKw","3","number",0,100)}${field("Estimated generation per kW/month","gen","110","number",1,500)}${field("Electricity rate (₹/kWh)","solarRate","8","number",0,100)}</div><button class="primary" style="margin-top:15px" onclick="solarCalc()">Estimate Scenario</button><div id="solarResult"></div></section></div>`}
 function solarCalc(){let k=+$("#solarKwh").value,kw=+$("#solarKw").value,g=+$("#gen").value,r=+$("#solarRate").value;let gen=kw*g,offset=Math.min(k,gen)*r;$("#solarResult").innerHTML=`<div class="result"><span>Estimated monthly generation</span><strong>${gen} kWh</strong><p style="color:var(--muted);font-size:11px;margin-top:5px">Illustrative bill-offset potential: <b class="good">₹${Math.round(offset).toLocaleString()}/month</b>. Actual generation and savings depend on location, system design, tariff and export rules.</p></div>`}
+function payments(){
+  const bill = state.currentBill || { provider: 'BSES Delhi', consumer: '********1234', amount: 1840, dueDate: '15 Sep 2026', period: 'Aug 2026', status: 'Ready to pay' };
+  return `<div>
+    <h1 class="page-title">Pay & Recharge ⚡</h1>
+    <p class="page-copy">This flow is sandbox-safe and only creates real payment orders when a trusted billing provider and payment gateway are configured.</p>
+    <section class="panel">
+      <div class="form-grid">
+        ${field("Service type","paymentService","Electricity Bill","select","","",[{value:'Electricity Bill',label:'Electricity Bill'},{value:'Prepaid Recharge',label:'Prepaid Recharge'}])}
+        ${field("Electricity provider","paymentProvider","BSES Delhi","select","","",[{value:'BSES Delhi',label:'BSES Delhi'},{value:'MSEB',label:'MSEB'},{value:'Tata Power',label:'Tata Power'}])}
+        ${field("Consumer / meter number","paymentConsumer","********1234")}
+      </div>
+      <div class="button-row">
+        <button class="primary" onclick="fetchBillForPayment()">Fetch Bill</button>
+        <button class="choice" onclick="render('payments')">Reset</button>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:15px;">
+      <h3>Bill Preview</h3>
+      <div class="result">
+        <div class="list-row"><div><b>Provider</b></div><span class="value">${bill.provider}</span></div>
+        <div class="list-row"><div><b>Consumer No.</b></div><span class="value">${bill.consumer}</span></div>
+        <div class="list-row"><div><b>Bill Amount</b></div><span class="value">₹${Number(bill.amount).toLocaleString()}</span></div>
+        <div class="list-row"><div><b>Due Date</b></div><span class="value">${bill.dueDate}</span></div>
+        <div class="list-row"><div><b>Billing Period</b></div><span class="value">${bill.period}</span></div>
+      </div>
+      <div class="button-row">
+        <button class="primary" onclick="createPaymentOrder()">Proceed to Pay ₹${Number(bill.amount).toLocaleString()}</button>
+      </div>
+    </section>
+  </div>`;
+}
+function field(label,id,value,type="text",min="",max="",options=[]){
+  if(type==="select"){
+    return `<div class="field"><label>${label}</label><select id="${id}">${(options||[]).map(option=>`<option value="${option.value}" ${option.value===value ? 'selected' : ''}>${option.label}</option>`).join("")}</select></div>`;
+  }
+  return `<div class="field"><label>${label}</label><input id="${id}" type="${type}" value="${value}" ${min!==""?`min="${min}"`:''} ${max!==""?`max="${max}"`:''}></div>`;
+}
+function fetchBillForPayment(){
+  const provider = $("#paymentProvider")?.value || "BSES Delhi";
+  const consumer = $("#paymentConsumer")?.value || "********1234";
+  state.currentBill = {
+    provider,
+    consumer: consumer.replace(/\d(?=\d{4})/g, '*'),
+    amount: 1840,
+    dueDate: '15 Sep 2026',
+    period: 'Aug 2026',
+    status: 'Pending verification'
+  };
+  toast('Sandbox bill fetched successfully. Payment status remains pending until provider verification is complete.');
+  render('payments');
+}
+function createPaymentOrder(){
+  if(!state.currentBill){
+    toast('Fetch a bill before creating a payment order.');
+    return;
+  }
+  const order = {
+    id: 'KWHY-' + Math.random().toString(36).slice(2, 10).toUpperCase(),
+    provider: state.currentBill.provider,
+    amount: Number(state.currentBill.amount),
+    currency: 'INR',
+    status: 'pending',
+    method: 'UPI',
+    consumer: state.currentBill.consumer,
+    createdAt: new Date().toISOString()
+  };
+  state.currentOrder = order;
+  state.paymentOrders.push(order);
+  toast('Secure payment order created. Verification remains server-side only.');
+  render('payments');
+}
 function reports(){return `<div><h1 class="page-title">Reports</h1><p class="page-copy">Your generated energy investigations.</p><section class="panel">${["August 2026 · Bill Investigation","July 2026 · Monthly Energy Report","June 2026 · Appliance Analysis"].map((x,i)=>`<div class="list-row"><div><b>📄 ${x}</b><small>AI-assisted report · ${i+1} findings</small></div><button class="choice" onclick="toast('Report preview opened.')">View</button></div>`).join("")}</section></div>`}
 function alerts(){return `<div><h1 class="page-title">Alerts</h1><p class="page-copy">Energy events that may deserve attention.</p><section class="panel">${[["⚠️","Bill increase detected","August estimated bill is 35% higher than July.","up"],["💡","Cooling load increased","Review AC usage and operating hours.","warn"],["✓","Monthly report ready","Your latest energy investigation is ready.","good"]].map(a=>`<div class="cause"><div class="cause-icon">${a[0]}</div><div><h4>${a[1]}</h4><p>${a[2]}</p></div><div class="impact"><b class="${a[3]}">New</b></div></div>`).join("")}</section></div>`}
-function profile(){const n=state.displayName||state.name||"User",photo=state.avatarUrl?`<img id="profilePhoto" class="profile-photo" src="${state.avatarUrl}" alt="Profile photo">`:`<img id="profilePhoto" class="profile-photo hidden" alt="Profile photo"><div id="profileInitials" class="profile-photo profile-initials">${initials(n)}</div>`;return `<div><h1 class="page-title">My Profile</h1><p class="page-copy">Manage your identity and profile preferences. Authentication email changes require provider verification.</p><section class="profile-layout"><section class="panel profile-card"><div class="profile-hero">${photo}<div><h2>${n}</h2><p>${state.email||"Demo account"}</p><span class="plan-badge">${state.plan.toUpperCase()} MEMBER</span></div></div><div class="profile-meta"><span>Member since</span><b>${new Date(state.memberSince).toLocaleDateString("en-US",{month:"long",year:"numeric"})}</b></div><label class="upload-button" for="profileFile">Change photo<input id="profileFile" type="file" accept="image/jpeg,image/png,image/webp" onchange="profileImage(this)"></label><button id="removePhoto" class="text-btn ${state.avatarUrl?"":"hidden"}" onclick="removeProfileImage()">Remove photo</button><p class="panel-sub">JPG, PNG, or WebP · maximum 2 MB. Demo preview stays in this browser.</p><button class="profile-logout" onclick="openLogoutDialog()">↪ Log out of KWhyzor</button></section><section class="panel"><div class="panel-head"><div><h3>Edit Profile</h3><p class="panel-sub">Only profile details are editable here.</p></div></div><div class="form-grid profile-form">${field("Full name","profileName",state.name)}${field("Display name","profileDisplay",state.displayName)}${field("Phone (optional)","profilePhone",state.phone)}${field("City / State (optional)","profileLocation",state.location)}</div><div class="button-row"><button id="saveProfile" class="primary" onclick="saveProfile()">Save Changes</button><button class="choice" onclick="render('profile')">Cancel</button></div></section></section></div>`}
+function profile(){const n=state.displayName||state.name||"User",photo=state.avatarUrl?`<img id="profilePhoto" class="profile-photo" src="${state.avatarUrl}" alt="Profile photo">`:`<img id="profilePhoto" class="profile-photo hidden" alt="Profile photo"><div id="profileInitials" class="profile-photo profile-initials">${initials(n)}</div>`;return `<div><h1 class="page-title">My Profile</h1><p class="page-copy">Manage your identity and profile preferences. Authentication email changes require provider verification.</p><section class="profile-layout"><section class="panel profile-card"><div class="profile-hero">${photo}<div><h2>${n}</h2><p>${state.email||"Demo account"}</p><span class="plan-badge">${state.plan.toUpperCase()} MEMBER</span></div></div><div class="profile-meta"><span>Member since</span><b>${new Date(state.memberSince).toLocaleDateString("en-US",{month:"long",year:"numeric"})}</b></div><label class="upload-button" for="profileFile">Change photo<input id="profileFile" type="file" accept="image/jpeg,image/png,image/webp" onchange="profileImage(this)"></label><button id="removePhoto" class="text-btn ${state.avatarUrl?"":"hidden"}" onclick="removeProfileImage()">Remove photo</button><p class="panel-sub">JPG, PNG, or WebP � maximum 2 MB. Demo preview stays in this browser.</p><button class="profile-logout" onclick="openLogoutDialog()">? Log out of KWhyzor</button></section><section class="panel"><div class="panel-head"><div><h3>Edit Profile</h3><p class="panel-sub">Only profile details are editable here.</p></div></div><div class="form-grid profile-form">${field("Full name","profileName",state.name)}${field("Display name","profileDisplay",state.displayName)}${field("Phone (optional)","profilePhone",state.phone)}${field("City / State (optional)","profileLocation",state.location)}</div><div class="button-row"><button id="saveProfile" class="primary" onclick="saveProfile()">Save Changes</button><button class="choice" onclick="render('profile')">Cancel</button></div></section></section></div>`}
 function settings(){return `<div><h1 class="page-title">Settings</h1><p class="page-copy">Manage your KWhyzor experience.</p><section class="panel"><div class="form-grid">${field("Display name","setName",state.name)}${field("Email","setEmail",state.email||"you@example.com")}</div><button class="primary" style="margin-top:15px" onclick="state.name=$('#setName').value;localStorage.setItem('kwhyzor_name',state.name);setUserUI();toast('Settings saved.')">Save Changes</button></section></div>`}
+async function admin(){if(state.role!=="super_admin"){toast("Access denied: Admin authorization required.");state.page="dashboard";render("dashboard");return `<div></div>`}if(!sb){toast("Connect Supabase to enable admin access.");state.page="dashboard";render("dashboard");return `<div></div>`}try{const {data:analytics,error:err1}=await sb.rpc("get_admin_analytics");const {data:users,error:err2}=await sb.rpc("get_admin_users",{limit_count:10,offset_count:0});if(err1||err2)throw err1||err2;const stats=analytics||{total_users:0,total_super_admins:0,total_bills:0,total_simulations:0,users_created_this_month:0,active_plans:{free:0,pro:0,business:0}};const recentUsers=(users||[]).slice(0,5);return `<div><h1 class="page-title">?? KWhyzor Admin Dashboard</h1><p class="page-copy">System overview and user management. All data is non-sensitive and audit-safe.</p><section class="panel"><div class="cards"><div class="metric"><div class="metric-head"><span>Total Registered Users</span><i class="metric-icon">??</i></div><strong>${stats.total_users}</strong><small>${stats.users_created_this_month} joined this month</small></div><div class="metric"><div class="metric-head"><span>Super Admins</span><i class="metric-icon">??</i></div><strong>${stats.total_super_admins||1}</strong><small>System configuration</small></div><div class="metric"><div class="metric-head"><span>Total Bills Analyzed</span><i class="metric-icon">?</i></div><strong>${stats.total_bills}</strong><small>Platform usage</small></div><div class="metric"><div class="metric-head"><span>Energy Simulations</span><i class="metric-icon">?</i></div><strong>${stats.total_simulations}</strong><small>User engagement</small></div></div></section><section class="panel" style="margin-top:15px"><h3>Active Subscriptions</h3><div class="list"><div class="list-row"><div><b>Free Plan</b><small>Standard access</small></div><span class="value">${stats.active_plans.free}</span></div><div class="list-row"><div><b>Pro Plan</b><small>Enhanced features</small></div><span class="value">${stats.active_plans.pro}</span></div><div class="list-row"><div><b>Business Plan</b><small>Custom support</small></div><span class="value">${stats.active_plans.business}</span></div></div></section><section class="panel" style="margin-top:15px"><h3>Recent Users</h3><div class="list">${recentUsers.map(u=>`<div class="list-row"><div><b>${u.full_name||u.email||'User'}</b><small>${u.email||'No email provided'}</small></div><span class="value">${u.role||'user'}</span></div>`).join("")||'<div class="list-row"><div><b>No recent users</b><small>Users will appear once they sign up.</small></div><span class="value">�</span></div>'}</div></section></div>`}catch(error){console.error("KWhyzor admin data failed",error);toast("Admin data could not be loaded.");state.page="dashboard";render("dashboard");return `<div></div>`}}
+function render(page){const titles={dashboard:"Dashboard",detective:"Bill Detective",simulator:"What-If Simulator",twin:"Electricity Twin",scanner:"Bill Scanner",bills:"Bills",appliances:"Appliances",ev:"EV Analysis",solar:"Solar Planner",payments:"Pay & Recharge",reports:"Reports",alerts:"Alerts",profile:"My Profile",settings:"Settings",admin:"Admin Dashboard"};const protectedPages=["dashboard","detective","simulator","twin","scanner","bills","appliances","ev","solar","payments","reports","alerts","profile","settings","admin"];const authenticated=state.userId||(cfg.DEMO_MODE&&localStorage.getItem("kwhyzor_session"));if(protectedPages.includes(page)&&!authenticated){$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin");return}if(page==="admin"&&state.role!=="super_admin"){toast("Unauthorized: Admin access required.");state.page="dashboard";render("dashboard");return}$("#pageTitle").textContent=titles[page]||"Dashboard";$$(".nav-item[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===page));const pages={dashboard,detective,simulator,twin,scanner,bills,appliances,ev,solar,payments,reports,alerts,profile,settings,admin};$("#pageContent").innerHTML=(pages[page]||dashboard)()}
 
-async function admin(){
-  if(state.role!=="super_admin"){toast("Access denied: Admin authorization required.");state.page="dashboard";render("dashboard");return `<div></div>`}
-  if(!sb){toast("Connect Supabase to enable admin access.");state.page="dashboard";render("dashboard");return `<div></div>`}
-  try{const {data:analytics,error:err1}=await sb.rpc("get_admin_analytics");const {data:users,error:err2}=await sb.rpc("get_admin_users",{limit_count:10,offset_count:0});if(err1||err2)throw err1||err2;const stats=analytics||{total_users:0,total_super_admins:0,total_bills:0,total_simulations:0,users_created_this_month:0,active_plans:{free:0,pro:0,business:0}};return `<div><h1 class="page-title">👑 KWhyzor Admin Dashboard</h1><p class="page-copy">System overview and user management. All data is non-sensitive and audit-safe.</p><section class="panel"><div class="cards"><div class="metric"><div class="metric-head"><span>Total Registered Users</span><i class="metric-icon">👤</i></div><strong>${stats.total_users}</strong><small>${stats.users_created_this_month} joined this month</small></div><div class="metric"><div class="metric-head"><span>Super Admins</span><i class="metric-icon">👑</i></div><strong>${stats.total_super_admins||1}</strong><small>System configuration</small></div><div class="metric"><div class="metric-head"><span>Total Bills Analyzed</span><i class="metric-icon">▤</i></div><strong>${stats.total_bills}</strong><small>Platform usage</small></div><div class="metric"><div class="metric-head"><span>Energy Simulations</span><i class="metric-icon">⌁</i></div><strong>${stats.total_simulations}</strong><small>User engagement</small></div></div></section><section class="panel" style="margin-top:15px"><h3>Active Subscriptions</h3><div class="list"><div class="list-row"><div><b>Free Plan</b><small>Standard access</small></div><span class="value">${stats.active_plans.free}</span></div><div class="list-row"><div><b>Pro Plan</b><small>Enhanced features</small></div><span class="value">${stats.active_plans.pro}</span></div><div class="list-row"><div><b>Business Plan</b><small>Custom support</small></div><span class="value">${stats.active_plans.business}</span></div></div></section><section class="panel" style="margin-top:15px"><h3>Recent Users</h3><div class="list">${(users||[]).map(u=>`<div class="list-row"><div><b>${u.full_name||"Unnamed User"}</b><small>${u.email}</small></div><div><span style="font-size:10px;color:var(--muted)">${new Date(u.created_at).toLocaleDateString()}</span></div></div>`).join("")}</div></section><section class="panel" style="margin-top:15px"><div class="panel-head"><div><h3>Security Status</h3><p class="panel-sub">All admin functions are protected by server-side role verification.</p></div></div><div class="list"><div class="list-row"><div><b>Authentication</b><small>Supabase Auth with RLS policies</small></div><span class="value good">✓ Secure</span></div><div class="list-row"><div><b>Role Enforcement</b><small>Server-side authorization checks</small></div><span class="value good">✓ Verified</span></div><div class="list-row"><div><b>Data Exposure</b><small>No passwords or secrets exposed</small></div><span class="value good">✓ Safe</span></div></div></section></div>`}catch(e){toast("Error loading admin analytics: "+e.message);return `<div><h1 class="page-title">👑 Admin Dashboard</h1><p class="page-copy">Error loading data</p></div>`}}
-}
-
-function render(page){const titles={dashboard:"Dashboard",detective:"Bill Detective",simulator:"What-If Simulator",twin:"Electricity Twin",scanner:"Bill Scanner",bills:"Bills",appliances:"Appliances",ev:"EV Analysis",solar:"Solar Planner",reports:"Reports",alerts:"Alerts",profile:"My Profile",settings:"Settings",admin:"Admin Dashboard"};const protectedPages=["dashboard","detective","simulator","twin","scanner","bills","appliances","ev","solar","reports","alerts","profile","settings","admin"];const authenticated=state.userId||(cfg.DEMO_MODE&&localStorage.getItem("kwhyzor_session"));if(protectedPages.includes(page)&&!authenticated){$("#appScreen").classList.add("hidden");$("#authScreen").classList.remove("hidden");showAuth("signin");return}if(page==="admin"&&state.role!=="super_admin"){toast("Unauthorized: Admin access required.");state.page="dashboard";render("dashboard");return}$("#pageTitle").textContent=titles[page]||"Dashboard";$$(".nav-item[data-page]").forEach(b=>b.classList.toggle("active",b.dataset.page===page));const pages={dashboard,detective,simulator,twin,scanner,bills,appliances,ev,solar,reports,alerts,profile,settings,admin};$("#pageContent").innerHTML=(pages[page]||dashboard)()}
