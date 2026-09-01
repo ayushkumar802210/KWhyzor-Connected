@@ -29,10 +29,21 @@
 --
 -- ============================================================================
 
+create extension if not exists pgcrypto;
+
 create or replace function public.get_super_admin_email()
-returns text language sql immutable as $$
-  select 'ayushkmr802210@gmail.com'::text
+returns text
+language sql
+stable
+as $$
+  select coalesce(
+    nullif(current_setting('app.settings.super_admin_email', true), ''),
+    'ayushkmr802210@gmail.com'::text
+  );
 $$;
+
+-- Optional override for production use:
+-- select set_config('app.settings.super_admin_email', 'owner@example.com', false);
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
