@@ -6,7 +6,7 @@
 window.KWHYZOR_CONFIG = {
   SUPABASE_URL: "https://gnxiqzffkarsfrncpwgi.supabase.co",
   SUPABASE_ANON_KEY: "sb_publishable_LKbEJIm6M9itGCmFm9fvNQ_fqJ84QCa",
-  DEMO_MODE: true,
+  DEMO_MODE: false,
   PAYMENT_PROVIDER: "sandbox",
   PAYMENT_PUBLIC_KEY: "YOUR_PAYMENT_PUBLIC_KEY",
   PAYMENT_SECRET_KEY: "YOUR_PAYMENT_SECRET_KEY",

@@ -38,7 +38,7 @@ stable
 as $$
   select coalesce(
     nullif(current_setting('app.settings.super_admin_email', true), ''),
-    'ayushkmr802210@gmail.com'::text
+    null::text
   );
 $$;
 
@@ -391,3 +391,217 @@ create index if not exists investigations_user_id_idx on public.bill_investigati
 create index if not exists ev_profiles_user_id_idx on public.ev_profiles(user_id);
 create index if not exists solar_profiles_user_id_idx on public.solar_profiles(user_id);
 create index if not exists simulations_user_id_idx on public.energy_simulations(user_id);
+
+-- Verified bill pipeline. Raw documents and OCR are kept separate from user-confirmed data.
+create table if not exists public.bill_documents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  storage_path text not null unique,
+  original_filename text not null,
+  mime_type text not null,
+  size_bytes bigint not null check (size_bytes > 0),
+  processing_status text not null check (processing_status in ('processing','not_configured','ocr_failed','review_required','rejected','verified')),
+  created_at timestamptz not null default now()
+);
+alter table public.bill_documents drop constraint if exists bill_documents_processing_status_check;
+alter table public.bill_documents add constraint bill_documents_processing_status_check check (processing_status in ('processing','not_configured','ocr_failed','review_required','rejected','verified'));
+
+create table if not exists public.bill_extractions (
+  id uuid primary key default gen_random_uuid(),
+  document_id uuid not null unique references public.bill_documents(id) on delete cascade,
+  raw_ocr_text text,
+  provider_evidence text,
+  extraction_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.electricity_bills (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  document_id uuid references public.bill_documents(id) on delete set null,
+  provider text,
+  consumer_number text,
+  meter_number text,
+  bill_number text,
+  bill_date date,
+  due_date date,
+  billing_period_start date,
+  billing_period_end date,
+  units_kwh numeric(12,3),
+  total_payable numeric(12,2),
+  verification_status text not null check (verification_status in ('review_required','verified')),
+  created_at timestamptz not null default now(),
+  verified_at timestamptz
+);
+
+alter table public.bill_documents enable row level security;
+alter table public.bill_extractions enable row level security;
+alter table public.electricity_bills enable row level security;
+drop policy if exists "bill documents own rows" on public.bill_documents;
+create policy "bill documents own rows" on public.bill_documents for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "bill extractions own rows" on public.bill_extractions;
+create policy "bill extractions own rows" on public.bill_extractions for all to authenticated using (exists (select 1 from public.bill_documents d where d.id = document_id and d.user_id = auth.uid())) with check (exists (select 1 from public.bill_documents d where d.id = document_id and d.user_id = auth.uid()));
+drop policy if exists "electricity bills own rows" on public.electricity_bills;
+create policy "electricity bills own rows" on public.electricity_bills for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+insert into storage.buckets (id, name, public) values ('electricity-bills', 'electricity-bills', false) on conflict (id) do nothing;
+drop policy if exists "electricity bills owner read" on storage.objects;
+create policy "electricity bills owner read" on storage.objects for select to authenticated using (bucket_id = 'electricity-bills' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "electricity bills owner upload" on storage.objects;
+create policy "electricity bills owner upload" on storage.objects for insert to authenticated with check (bucket_id = 'electricity-bills' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "electricity bills owner delete" on storage.objects;
+create policy "electricity bills owner delete" on storage.objects for delete to authenticated using (bucket_id = 'electricity-bills' and (storage.foldername(name))[1] = auth.uid()::text);
+
+create table if not exists public.meter_readings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  meter_number text,
+  previous_reading numeric(12,3),
+  current_reading numeric(12,3),
+  multiplier numeric(12,3),
+  reading_date date,
+  reading_status text not null default 'UNKNOWN' check (reading_status in ('ACTUAL','ESTIMATED','PROVISIONAL','UNKNOWN')),
+  calculated_consumption_kwh numeric(12,3),
+  created_at timestamptz not null default now()
+);
+
+alter table public.meter_readings enable row level security;
+drop policy if exists "meter readings own rows" on public.meter_readings;
+create policy "meter readings own rows" on public.meter_readings for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create table if not exists public.bill_field_values (
+  id uuid primary key default gen_random_uuid(),
+  bill_id uuid not null references public.electricity_bills(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  field_name text not null,
+  value_text text,
+  value_numeric numeric,
+  source text not null check (source in ('ACTUAL_FROM_BILL','USER_PROVIDED','CALCULATED_BY_KWHYZOR','USER_ESTIMATE','OCR_UNVERIFIED','NOT_AVAILABLE')),
+  confidence text,
+  evidence text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.bill_verification_events (
+  id uuid primary key default gen_random_uuid(),
+  bill_id uuid not null references public.electricity_bills(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  event_type text not null check (event_type in ('uploaded','processed','reviewed','corrected','verified','rejected')),
+  event_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+alter table public.bill_field_values enable row level security;
+alter table public.bill_verification_events enable row level security;
+drop policy if exists "bill fields own rows" on public.bill_field_values;
+create policy "bill fields own rows" on public.bill_field_values for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "bill verification events own rows" on public.bill_verification_events;
+create policy "bill verification events own rows" on public.bill_verification_events for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create table if not exists public.payments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  order_id text unique,
+  payment_id text unique,
+  gateway text not null,
+  amount numeric(12,2) not null check (amount >= 0),
+  currency text not null default 'INR',
+  payment_method text,
+  provider_response jsonb,
+  status text not null check (status in ('created','pending','paid','failed','refunded')),
+  webhook_verified boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table public.payments add column if not exists payment_method text;
+alter table public.payments add column if not exists provider_response jsonb;
+
+create table if not exists public.subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  plan text not null,
+  status text not null check (status in ('active','inactive','past_due','cancelled')),
+  gateway text,
+  current_period_end timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists subscriptions_user_id_unique on public.subscriptions(user_id);
+
+alter table public.payments enable row level security;
+alter table public.subscriptions enable row level security;
+drop policy if exists "payments own rows" on public.payments;
+create policy "payments own rows" on public.payments for select to authenticated using (auth.uid() = user_id);
+drop policy if exists "subscriptions own rows" on public.subscriptions;
+create policy "subscriptions own rows" on public.subscriptions for select to authenticated using (auth.uid() = user_id);
+
+create table if not exists public.bill_comparisons (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
+  first_bill_id uuid not null references public.electricity_bills(id) on delete cascade,
+  second_bill_id uuid not null references public.electricity_bills(id) on delete cascade,
+  comparison_data jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+create table if not exists public.electricity_providers (
+  id uuid primary key default gen_random_uuid(), name text not null unique, code text unique, created_at timestamptz not null default now()
+);
+create table if not exists public.electricity_twin_data (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
+  home_id uuid references public.homes(id) on delete cascade, data jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
+  report_type text not null, source_bill_ids uuid[] not null default '{}', report_data jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+create table if not exists public.audit_logs (
+  id uuid primary key default gen_random_uuid(), user_id uuid references auth.users(id) on delete set null,
+  action text not null, entity_type text, entity_id text, metadata jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+alter table public.bill_comparisons enable row level security;
+alter table public.electricity_twin_data enable row level security;
+alter table public.reports enable row level security;
+alter table public.audit_logs enable row level security;
+drop policy if exists "bill comparisons own rows" on public.bill_comparisons;
+create policy "bill comparisons own rows" on public.bill_comparisons for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "twin data own rows" on public.electricity_twin_data;
+create policy "twin data own rows" on public.electricity_twin_data for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "reports own rows" on public.reports;
+create policy "reports own rows" on public.reports for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "audit logs own rows" on public.audit_logs;
+create policy "audit logs own rows" on public.audit_logs for select to authenticated using (auth.uid() = user_id);
+
+create table if not exists public.bill_charges (
+  id uuid primary key default gen_random_uuid(), bill_id uuid not null references public.electricity_bills(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade, charge_type text not null, amount numeric(12,2), source text not null,
+  created_at timestamptz not null default now()
+);
+create table if not exists public.energy_data (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade, meter_id text,
+  source text not null, reading_at timestamptz, current_reading numeric(12,3), previous_reading numeric(12,3), consumption numeric(12,3), unit text not null default 'kWh', tariff numeric(12,4), cost numeric(12,2), status text not null, source_reference text, created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create table if not exists public.plans (
+  id uuid primary key default gen_random_uuid(), name text not null unique, amount numeric(12,2) not null, currency text not null default 'INR', active boolean not null default true, created_at timestamptz not null default now()
+);
+create table if not exists public.payment_events (
+  id uuid primary key default gen_random_uuid(), payment_id uuid references public.payments(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade, provider_event_id text unique, event_type text not null, payload jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+create table if not exists public.report_items (
+  id uuid primary key default gen_random_uuid(), report_id uuid not null references public.reports(id) on delete cascade, user_id uuid not null references auth.users(id) on delete cascade, label text not null, value_text text, source text, created_at timestamptz not null default now()
+);
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade, notification_type text not null, status text not null default 'pending', data jsonb not null default '{}'::jsonb, created_at timestamptz not null default now()
+);
+create table if not exists public.ev_data (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade, data jsonb not null default '{}'::jsonb, source text not null, created_at timestamptz not null default now()
+);
+create table if not exists public.solar_data (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade, data jsonb not null default '{}'::jsonb, source text not null, created_at timestamptz not null default now()
+);
+alter table public.bill_charges enable row level security; alter table public.energy_data enable row level security; alter table public.plans enable row level security; alter table public.payment_events enable row level security; alter table public.report_items enable row level security; alter table public.notifications enable row level security; alter table public.ev_data enable row level security; alter table public.solar_data enable row level security;
+drop policy if exists "bill charges own rows" on public.bill_charges; create policy "bill charges own rows" on public.bill_charges for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "energy data own rows" on public.energy_data; create policy "energy data own rows" on public.energy_data for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "plans public read" on public.plans; create policy "plans public read" on public.plans for select to authenticated using (active = true);
+drop policy if exists "payment events own rows" on public.payment_events; create policy "payment events own rows" on public.payment_events for select to authenticated using (auth.uid() = user_id);
+drop policy if exists "report items own rows" on public.report_items; create policy "report items own rows" on public.report_items for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "notifications own rows" on public.notifications; create policy "notifications own rows" on public.notifications for select to authenticated using (auth.uid() = user_id);
+drop policy if exists "ev data own rows" on public.ev_data; create policy "ev data own rows" on public.ev_data for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "solar data own rows" on public.solar_data; create policy "solar data own rows" on public.solar_data for all to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);

@@ -3,59 +3,60 @@
 import { ChangeEvent, useState } from 'react';
 
 type BillSummary = {
-  fileName: string;
-  provider: string;
-  period: string;
-  sizeLabel: string;
-  status: string;
-  source: string;
+  status: 'processing' | 'verification_required' | 'error';
+  message: string;
+  documentId?: string;
 };
 
-const normalizeProvider = (fileName: string) => {
-  const lower = fileName.toLowerCase();
-  if (lower.includes('bescom')) return 'BESCOM';
-  if (lower.includes('mseb')) return 'MSEB';
-  if (lower.includes('tata')) return 'Tata Power';
-  if (lower.includes('bses')) return 'BSES';
-  if (lower.includes('jvvnl')) return 'JVVNL';
-  if (lower.includes('tp')) return 'TP';
-  return 'Provider not detected yet';
+type VerifiedBill = {
+  id: string;
+  provider: string | null;
+  bill_date: string | null;
+  due_date: string | null;
+  units_kwh: number | null;
+  total_payable: number | null;
 };
 
-const deriveBillSummary = (fileName: string, size: number): BillSummary => {
-  const provider = normalizeProvider(fileName);
-  const period = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-  const sizeLabel = size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`;
-
-  return {
-    fileName,
-    provider,
-    period,
-    sizeLabel,
-    status: 'Uploaded and waiting for document verification',
-    source: 'Uploaded by user'
-  };
-};
-
-export function RealBillPrompt({ mode = 'dashboard' }: { mode?: 'dashboard' | 'detective' | 'twin' | 'bills' }) {
+export function RealBillPrompt({ mode = 'dashboard', verifiedBillCount = 0, latestBill = null }: { mode?: 'dashboard' | 'detective' | 'twin' | 'bills'; verifiedBillCount?: number; latestBill?: VerifiedBill | null }) {
   const [bill, setBill] = useState<BillSummary | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
-  const onUpload = (event: ChangeEvent<HTMLInputElement>) => {
+  const onUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    setBill(deriveBillSummary(file.name, file.size));
+
+    setIsUploading(true);
+    setBill({ status: 'processing', message: 'Your bill is being processed.' });
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/api/bills/upload', { method: 'POST', body: formData });
+      const result = (await response.json()) as { message?: string; error?: string; status?: string; documentId?: string };
+
+      if (!response.ok) {
+        setBill({ status: result.status === 'not_configured' ? 'verification_required' : 'error', message: result.message ?? result.error ?? 'The bill could not be uploaded.', documentId: result.documentId });
+        return;
+      }
+
+      setBill({ status: 'verification_required', message: result.message ?? 'Bill uploaded. Review is required before verification.', documentId: result.documentId });
+    } catch {
+      setBill({ status: 'error', message: 'The bill could not be uploaded. Please try again.' });
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const billFields = [
-    ['Source', bill ? bill.source : 'Not available until a real bill is uploaded'],
-    ['Provider', bill ? bill.provider : 'Not available until a real bill is uploaded'],
-    ['Bill / meter reference', bill ? bill.fileName : 'Not available until a real bill is uploaded'],
-    ['Billing period', bill ? bill.period : 'Not available until a real bill is uploaded'],
-    ['Meter reading', bill ? 'Upload contains actual meter reading data only after extraction' : 'Not available until a real bill or meter image is uploaded'],
-    ['Units consumed (kWh)', bill ? 'Will appear only after field extraction from the real document' : 'Not available until a real bill is uploaded'],
-    ['Bill amount', bill ? 'Will appear only after extraction from the real document' : 'Not available until a real bill is uploaded'],
-    ['Due date', bill ? 'Will appear only after extraction from the real document' : 'Not available until a real bill is uploaded'],
-    ['Verification status', bill ? bill.status : 'Waiting for real document verification']
+    ['Source', 'Not available until a real bill is processed'],
+    ['Provider', 'Not available until extracted from the bill'],
+    ['Bill / meter reference', 'Not available until extracted from the bill'],
+    ['Billing period', 'Not available until extracted from the bill'],
+    ['Meter reading', 'Not available until extracted from the bill'],
+    ['Units consumed (kWh)', 'Not available until extracted from the bill'],
+    ['Bill amount', 'Not available until extracted from the bill'],
+    ['Due date', 'Not available until extracted from the bill'],
+    ['Verification status', bill ? bill.message : 'No electricity data available yet.']
   ];
 
   if (mode === 'dashboard') {
@@ -68,10 +69,33 @@ export function RealBillPrompt({ mode = 'dashboard' }: { mode?: 'dashboard' | 'd
               <h1 className="mt-2 text-3xl font-black text-slate-900">Real bill dashboard</h1>
             </div>
             <label className="btn-primary cursor-pointer">
-              Upload bill
+              {isUploading ? 'Processing bill...' : 'Upload bill'}
               <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden" onChange={onUpload} />
             </label>
           </header>
+
+          {verifiedBillCount === 0 ? (
+            <div className="card-surface p-8">
+              <h2 className="text-2xl font-black text-slate-900">No electricity data available yet.</h2>
+              <p className="mt-3 text-slate-600">Upload your real electricity bill or enter your actual meter/bill information to start.</p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <a href="/bills/upload" className="btn-primary">Upload Electricity Bill</a>
+                <a href="/bills/manual" className="btn-secondary">Enter Meter / Bill Details</a>
+                <a href="/electricity-twin" className="btn-secondary">Create Electricity Twin</a>
+              </div>
+            </div>
+          ) : null}
+
+          {verifiedBillCount > 0 ? <div className="mb-4 text-sm font-semibold text-emerald-700">{verifiedBillCount} verified bill{verifiedBillCount === 1 ? '' : 's'} found.</div> : null}
+
+          {latestBill ? (
+            <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="card-surface p-5"><div className="text-xs uppercase tracking-[0.18em] text-slate-500">Provider</div><div className="mt-3 text-xl font-black text-slate-900">{latestBill.provider ?? 'Not identified'}</div><div className="mt-2 text-xs text-slate-500">ACTUAL_FROM_BILL or USER_PROVIDED</div></div>
+              <div className="card-surface p-5"><div className="text-xs uppercase tracking-[0.18em] text-slate-500">Consumption</div><div className="mt-3 text-xl font-black text-slate-900">{latestBill.units_kwh === null ? 'Not available' : `${latestBill.units_kwh} kWh`}</div><div className="mt-2 text-xs text-slate-500">Source preserved in bill fields</div></div>
+              <div className="card-surface p-5"><div className="text-xs uppercase tracking-[0.18em] text-slate-500">Bill date</div><div className="mt-3 text-xl font-black text-slate-900">{latestBill.bill_date ?? 'Not available'}</div><div className="mt-2 text-xs text-slate-500">No date is inferred</div></div>
+              <div className="card-surface p-5"><div className="text-xs uppercase tracking-[0.18em] text-slate-500">Total payable</div><div className="mt-3 text-xl font-black text-slate-900">{latestBill.total_payable === null ? 'Not available' : `₹${latestBill.total_payable}`}</div><div className="mt-2 text-xs text-slate-500">Source preserved in bill fields</div></div>
+            </div>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="card-surface p-5">
@@ -81,18 +105,18 @@ export function RealBillPrompt({ mode = 'dashboard' }: { mode?: 'dashboard' | 'd
             </div>
             <div className="card-surface p-5">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Provider</div>
-              <div className="mt-4 text-2xl font-black text-slate-900">{bill ? bill.provider : 'Not detected'}</div>
-              <div className="mt-3 text-sm font-semibold text-slate-600">{bill ? bill.fileName : 'No bill uploaded yet'}</div>
+              <div className="mt-4 text-2xl font-black text-slate-900">Not available</div>
+              <div className="mt-3 text-sm font-semibold text-slate-600">Only evidence extracted from a real bill can identify the provider.</div>
             </div>
             <div className="card-surface p-5">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Period</div>
-              <div className="mt-4 text-2xl font-black text-slate-900">{bill ? bill.period : 'Not available'}</div>
-              <div className="mt-3 text-sm font-semibold text-slate-600">{bill ? 'Captured from real upload' : 'Waiting for real bill'}</div>
+              <div className="mt-4 text-2xl font-black text-slate-900">Not available</div>
+              <div className="mt-3 text-sm font-semibold text-slate-600">Only the bill&apos;s actual dates can define its billing period.</div>
             </div>
             <div className="card-surface p-5">
               <div className="text-xs uppercase tracking-[0.18em] text-slate-500">File</div>
-              <div className="mt-4 text-2xl font-black text-slate-900">{bill ? bill.sizeLabel : 'No file'}</div>
-              <div className="mt-3 text-sm font-semibold text-slate-600">{bill ? 'Ready for verification' : 'Not available yet'}</div>
+              <div className="mt-4 text-2xl font-black text-slate-900">{bill?.status ?? 'No data'}</div>
+              <div className="mt-3 text-sm font-semibold text-slate-600">An upload is not verified electricity data.</div>
             </div>
           </div>
 
@@ -139,13 +163,13 @@ export function RealBillPrompt({ mode = 'dashboard' }: { mode?: 'dashboard' | 'd
 
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="text-sm text-slate-600">
-                {bill
-                  ? `This analysis is based only on the uploaded bill: ${bill.fileName}. It will compare only fields actually extracted from the real document.`
-                  : 'Upload a real electricity bill or meter image to compare actual readings and explain the change with evidence.'}
+                {verifiedBillCount < 2
+                  ? 'Upload another verified bill to compare changes.'
+                  : 'This analysis compares only verified bills and explains only differences supported by their evidence.'}
               </div>
             </div>
 
-            <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {verifiedBillCount >= 2 ? <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {[
                 ['Higher consumption', bill ? 'Requires real extracted reading evidence' : 'Evidence required', 'Needs verification'],
                 ['Longer billing period', bill ? 'Only if the bill shows a longer cycle' : 'Check billing days', 'Needs verification'],
@@ -160,7 +184,7 @@ export function RealBillPrompt({ mode = 'dashboard' }: { mode?: 'dashboard' | 'd
                   <div className="mt-3 inline-flex rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">{state}</div>
                 </div>
               ))}
-            </div>
+            </div> : null}
           </div>
         </div>
       </main>
@@ -176,7 +200,7 @@ export function RealBillPrompt({ mode = 'dashboard' }: { mode?: 'dashboard' | 'd
             <h1 className="mt-2 text-3xl font-black text-slate-900">Create your electricity twin</h1>
             <p className="mt-3 text-slate-600">
               {bill
-                ? `The uploaded bill ${bill.fileName} is the source of truth. Add real appliance entries only after actual usage or document evidence is available.`
+                ? 'The document is not yet verified. Add appliance estimates only when real inputs are available.'
                 : 'Upload your real bill or meter image first. Appliance estimates appear only when real usage data exists.'}
             </p>
 
@@ -213,8 +237,9 @@ export function RealBillPrompt({ mode = 'dashboard' }: { mode?: 'dashboard' | 'd
           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
             {bill ? (
               <div>
-                <div className="text-lg font-black text-slate-900">{bill.fileName}</div>
-                <p className="mt-2 text-sm text-slate-600">Provider: {bill.provider} · Period: {bill.period} · Source: {bill.source}</p>
+                <div className="text-lg font-black text-slate-900">Bill processing status</div>
+                <p className="mt-2 text-sm text-slate-600">{bill.message}</p>
+                {bill.documentId ? <a href={`/bills/review/${bill.documentId}`} className="mt-4 inline-flex font-semibold text-brand-700">Open review status</a> : null}
               </div>
             ) : (
               <div>

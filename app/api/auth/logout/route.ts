@@ -1,6 +1,11 @@
+import { createClient } from '@/lib/supabase/server';
+
 export async function POST() {
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signOut();
+  if (error) return Response.json({ error: 'Unable to log out.' }, { status: 500 });
   return Response.json({
     ok: true,
-    message: 'Logout is handled by the authentication provider and server-side session invalidation.'
+    message: 'Logged out.'
   });
 }

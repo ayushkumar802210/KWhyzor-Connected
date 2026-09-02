@@ -1,11 +1,15 @@
-const metrics = [
-  { label: 'Total users', value: '0' },
-  { label: 'New users', value: '0' },
-  { label: 'Uploaded bills', value: '0' },
-  { label: 'Analyzed bills', value: '0' }
-];
+import { createClient } from '@/lib/supabase/server';
 
-export default function AdminPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function AdminPage() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: profile } = user ? await supabase.from('profiles').select('role').eq('id', user.id).single() : { data: null };
+  if (!user || profile?.role !== 'super_admin') return <main className="p-8">Unauthorized</main>;
+  const { data } = await supabase.rpc('get_admin_analytics');
+  const stats = data as { total_users?: number; total_bills?: number; total_simulations?: number; users_created_this_month?: number } | null;
+  const metrics = [{ label: 'Total users', value: stats?.total_users ?? 'Not available' }, { label: 'New users', value: stats?.users_created_this_month ?? 'Not available' }, { label: 'Uploaded bills', value: stats?.total_bills ?? 'Not available' }, { label: 'Analyzed bills', value: stats?.total_simulations ?? 'Not available' }];
   return (
     <main className="min-h-screen bg-slate-100 p-6">
       <div className="container-shell max-w-6xl">

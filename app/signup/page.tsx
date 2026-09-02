@@ -1,4 +1,62 @@
+'use client';
+
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { FormEvent, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+
 export default function SignUpPage() {
+  const router = useRouter();
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+
+    if (fullName.trim().length < 2) {
+      setError('Please enter your full name.');
+      return;
+    }
+
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+
+    setError('');
+    setIsSubmitting(true);
+
+    try {
+      const { data, error: signUpError } = await createClient().auth.signUp({
+        email,
+        password,
+        options: { data: { full_name: fullName.trim() } }
+      });
+      if (signUpError) {
+        setError(signUpError.message);
+        return;
+      }
+      if (data.session) {
+        router.push('/dashboard');
+        router.refresh();
+      } else {
+        setError('Account created. Check your email to confirm your address before signing in.');
+      }
+    } catch (authError) {
+      setError(authError instanceof Error ? authError.message : 'Unable to create your account.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
       <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.35)]">
@@ -9,23 +67,59 @@ export default function SignUpPage() {
             <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Create account</div>
           </div>
         </div>
+
         <h1 className="text-3xl font-black text-slate-900">Start smarter energy decisions</h1>
-        <p className="mt-2 text-sm text-slate-600">Set up your account and begin understanding your bill, usage, and home energy profile.</p>
-        <form className="mt-8 space-y-4">
+        <p className="mt-2 text-sm text-slate-600">Create your account and begin understanding your bill, usage, and home energy profile.</p>
+
+        <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
           <label className="block text-sm font-medium text-slate-700">
             Full name
-            <input type="text" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-brand-500" placeholder="Your name" />
+            <input
+              type="text"
+              value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-brand-500"
+              placeholder="Your name"
+              required
+            />
           </label>
+
           <label className="block text-sm font-medium text-slate-700">
             Email
-            <input type="email" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-brand-500" placeholder="you@example.com" />
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-brand-500"
+              placeholder="you@example.com"
+              required
+            />
           </label>
+
           <label className="block text-sm font-medium text-slate-700">
             Password
-            <input type="password" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none ring-0 transition focus:border-brand-500" placeholder="Minimum 6 characters" />
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-brand-500"
+              placeholder="Minimum 6 characters"
+              required
+            />
           </label>
-          <button type="submit" className="btn-primary w-full">Create account</button>
-          <div className="text-center text-sm text-slate-500">Already have an account? <a href="/signin" className="font-semibold text-brand-700">Sign in</a></div>
+
+          {error ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+          ) : null}
+
+          <button type="submit" className="btn-primary w-full" disabled={isSubmitting}>
+            {isSubmitting ? 'Creating account...' : 'Create account'}
+          </button>
+
+          <div className="text-center text-sm text-slate-500">
+            Already have an account?{' '}
+            <Link href="/signin" className="font-semibold text-brand-700">Sign in</Link>
+          </div>
         </form>
       </div>
     </main>
