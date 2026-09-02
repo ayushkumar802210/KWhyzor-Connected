@@ -38,10 +38,15 @@ export default function SignUpPage() {
       const { data, error: signUpError } = await createClient().auth.signUp({
         email,
         password,
-        options: { data: { full_name: fullName.trim() } }
+        options: { data: { full_name: fullName.trim() }, emailRedirectTo: `${window.location.origin}/auth/callback?next=%2Fdashboard` }
       });
       if (signUpError) {
-        setError(signUpError.message);
+        const message = signUpError.message.toLowerCase().includes('already registered') || signUpError.message.toLowerCase().includes('already been registered')
+          ? 'This email is already registered. Please sign in.'
+          : signUpError.message.toLowerCase().includes('rate limit')
+            ? 'Too many attempts. Please wait and try again.'
+            : signUpError.message;
+        setError(message);
         return;
       }
       if (data.session) {
@@ -51,7 +56,7 @@ export default function SignUpPage() {
         setError('Account created. Check your email to confirm your address before signing in.');
       }
     } catch (authError) {
-      setError(authError instanceof Error ? authError.message : 'Unable to create your account.');
+      setError(authError instanceof Error && authError.message.includes('not configured') ? 'Authentication is not configured. Please configure Supabase credentials.' : 'Authentication service is temporarily unavailable.');
     } finally {
       setIsSubmitting(false);
     }

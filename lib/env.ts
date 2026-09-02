@@ -10,7 +10,7 @@ const envSchema = z.object({
   LLM_API_KEY: z.string().optional().or(z.literal('')),
   OCR_PROVIDER: z.string().optional().or(z.literal('')),
   OCR_API_KEY: z.string().optional().or(z.literal('')),
-    LLM_MODEL: z.string().optional().or(z.literal('')),
+  LLM_MODEL: z.string().optional().or(z.literal('')),
   OCR_ENDPOINT: z.string().url().optional().or(z.literal('')),
   OCR_MODEL_ID: z.string().optional().or(z.literal('')),
   PAYMENT_PROVIDER: z.string().optional().or(z.literal('')),
@@ -34,7 +34,7 @@ export const env = envSchema.parse({
   LLM_API_KEY: process.env.LLM_API_KEY ?? '',
   OCR_PROVIDER: process.env.OCR_PROVIDER ?? '',
   OCR_API_KEY: process.env.OCR_API_KEY ?? '',
-    LLM_MODEL: process.env.LLM_MODEL ?? '',
+  LLM_MODEL: process.env.LLM_MODEL ?? '',
   OCR_ENDPOINT: process.env.OCR_ENDPOINT ?? '',
   OCR_MODEL_ID: process.env.OCR_MODEL_ID ?? '',
   PAYMENT_PROVIDER: process.env.PAYMENT_PROVIDER ?? '',
@@ -47,3 +47,8 @@ export const env = envSchema.parse({
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY ?? '',
   BBPS_API_KEY: process.env.BBPS_API_KEY ?? ''
 });
+
+export function isSupabaseConfigured(): boolean {
+  return Boolean(env.NEXT_PUBLIC_SUPABASE_URL && env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+}
+

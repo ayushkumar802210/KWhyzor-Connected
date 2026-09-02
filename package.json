@@ -6,11 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint app lib --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/**/*.test.ts"
   },
   "dependencies": {
+    "@eslint/eslintrc": "^3.0.0",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.1",
     "clsx": "^2.1.1",
